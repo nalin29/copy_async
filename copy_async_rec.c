@@ -9,6 +9,7 @@
 #include <string.h>
 #include <time.h>  
 #include "copy.h"
+#include "list.h"
 
 static volatile sig_atomic_t gotSIGQUIT = 0;
 /* On delivery of SIGQUIT, we attempt to

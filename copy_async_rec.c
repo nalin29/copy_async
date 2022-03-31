@@ -7,11 +7,18 @@
 #include <signal.h>
 #include <limits.h>
 #include <string.h>
-#include <time.h>  
+#include <time.h>
+#include <dirent.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "copy.h"
 #include "list.h"
+#include "logging.h"
 
 static volatile sig_atomic_t gotSIGQUIT = 0;
+char *src;
+char *dest;
+int src_name_size;
 /* On delivery of SIGQUIT, we attempt to
    cancel all outstanding I/O requests */
 
@@ -30,174 +37,288 @@ void install_sigquit_signal_handler()
    CHECK_ERROR(sigaction(SIGQUIT, &sa, NULL), "Installing SiqQuit Handler");
 }
 
+// given a filename with path ../src/.../name will convert to ../dest/../name
+void get_dest(char *src_name, char *dest_name)
+{
+   CHECK_NULL(strcpy(dest_name, dest), "copying dest top file name");
+   CHECK_NULL(strncat(dest_name, src_name + src_name_size, PATH_MAX), "concat filename relative to source");
+};
+
+// sets dest_file to correct value, if empty dest_file = NULL
+void getNextFile(struct list *queue, char *src_file, char *dest_file)
+{
+   int fileFound = 0;
+   // perform bfs
+   while (!fileFound)
+   {
+
+      if (queue->size == 0)
+      {
+         dest_file = NULL;
+         return;
+      }
+
+      char *name = (char *)deq_node(queue);
+
+      struct stat path_stat;
+      CHECK_ERROR(stat(name, &path_stat), "stat file");
+
+      get_dest(name, dest_file);
+
+      // if file is directory mkdir at correct relative point
+      // traverse directory and append files/dir to end of queue
+      if (S_ISREG(path_stat.st_mode))
+      {
+         CHECK_ERROR(mkdir(dest_file, S_IRWXU | S_IRWXG | S_IRWXO), "making new directory");
+         DIR *dir;
+         struct dirent *dp;
+         dir = opendir(name);
+         CHECK_NULL(dir, "opening orignal source dir");
+         while ((dp = readdir(dir)) != NULL)
+         {
+            char *file_name = malloc(PATH_MAX * sizeof(char));
+            CHECK_NULL(strcpy(file_name, name), "copying in string");
+            CHECK_NULL(strcat(file_name, "/"), "concating /");
+            CHECK_NULL(strcat(file_name, dp->d_name), "concat file name to src dir");
+            enq_node(queue, (void *)file_name);
+         }
+         closedir(dir);
+      }
+      else
+      {
+         fileFound = 1;
+         strcpy(src_file, name);
+         get_dest(src_file, dest_file);
+      }
+      free(name);
+   }
+}
+
 int main(int argc, char **argv)
 {
    double time_spent = 0.0;
    clock_t begin = clock();
 
+   // arg1 directory structure to copy, arg2 destination directory
    if (argc < 3)
    {
       printf("Need to have src and dest\n");
       return -1;
    }
-   char *src = argv[1];
-   char *dest = argv[2];
-   int fd = open(src, O_RDONLY);
-   CHECK_ERROR(fd, "Open SRC");
-   int fdDest = open(dest, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
-   CHECK_ERROR(fdDest, "OPEN DEST");
-   int numReq = 1;
-   int openReq = 0;
-   struct ioEntry *ioList;
-   struct aiocb *aiocbList;
-   char *bufList;
-   char *fileNameList;
 
-   // add start that detects mem size allocates approx 1/2 memory
+   src = argv[1];
+   dest = argv[2];
 
-   ioList = calloc(numReq, sizeof(struct ioEntry));
-   CHECK_NULL(ioList, "Allocating IOList");
-   aiocbList = calloc(2 * numReq, sizeof(struct aiocb));
-   CHECK_NULL(aiocbList, "Allocating aiocb list");
-   bufList = calloc(numReq, BUFF_SIZE);
-   CHECK_NULL(bufList, "Allocating buflist");
-   fileNameList = calloc(2 * numReq, PATH_MAX);
-   CHECK_NULL(fileNameList, "Allocating Filename List");
+   src_name_size = strlen(src);
 
-   // add method call that will bfs through directories and build queue of files and directories
+   DIR *src_dir;
+   DIR *dest_dir;
 
-   install_sigquit_signal_handler();
+   src_dir = opendir(src);
+   CHECK_NULL(src_dir, 'Opening Src dir');
 
-   int ret;
-   // need to change this to operate on linked list
-   // also needs deque files from the bfs queue (if directory then mkdir)
-   for (int i = 0; i < numReq; i++)
+   dest_dir = opendir(dest);
+   if (dest_dir != NULL)
    {
-      // set pointers
-      ioList[i].srcName = &fileNameList[2 * i * PATH_MAX];
-      ioList[i].destName = &fileNameList[(2 * i + 1) * PATH_MAX];
-      ioList[i].buffer = &bufList[i * (BUFF_SIZE)];
-      ioList[i].read_aiocb = &aiocbList[2 * i];
-      ioList[i].write_aiocb = &aiocbList[2 * i + 1];
-
-      // set values
-      ioList[i].readOff = 0;
-      ioList[i].writeOff = 0;
-      ioList[i].fdSrc = fd;
-      ioList[i].fdDest = fdDest;
-      ioList[i].readStatus = EINPROGRESS;
-      ioList[i].writeStatus = EINPROGRESS;
-      strncpy(ioList[i].srcName, src, PATH_MAX);
-      strncpy(ioList[i].destName, dest, PATH_MAX);
-
-      memset(ioList[i].read_aiocb, 0, sizeof(struct aiocb));
-      memset(ioList[i].write_aiocb, 0, sizeof(struct aiocb));
-
-      // set values for aio control blocks
-      ioList[i].read_aiocb->aio_fildes = ioList[i].fdSrc;
-      ioList[i].read_aiocb->aio_buf = ioList[i].buffer;
-      ioList[i].read_aiocb->aio_nbytes = BUFF_SIZE;
-      ioList[i].read_aiocb->aio_reqprio = 0;
-      ioList[i].read_aiocb->aio_offset = 0;
-      ioList[i].read_aiocb->aio_sigevent.sigev_notify = SIGEV_NONE;
-      ioList[i].read_aiocb->aio_sigevent.sigev_signo = 0;
-      ioList[i].read_aiocb->aio_sigevent.sigev_value.sival_ptr = &ioList[i];
-
-      ioList[i].write_aiocb->aio_fildes = ioList[i].fdDest;
-      ioList[i].write_aiocb->aio_buf = ioList[i].buffer;
-      ioList[i].write_aiocb->aio_nbytes = BUFF_SIZE;
-      ioList[i].write_aiocb->aio_reqprio = 0;
-      ioList[i].write_aiocb->aio_offset = 0;
-      ioList[i].write_aiocb->aio_sigevent.sigev_notify = SIGEV_NONE;
-      ioList[i].write_aiocb->aio_sigevent.sigev_signo = 0;
-      ioList[i].write_aiocb->aio_sigevent.sigev_value.sival_ptr = &ioList[i];
-
+      printf("Directory already exists");
+      closedir(dest_dir);
+      exit(0);
+   }
+   else if (errno != ENOENT)
+   {
+      perror("ERROR: ");
+      exit(0);
    }
 
-   for (int i = 0; i < numReq; i++)
+   // set up queue
+   struct list *queue = malloc(sizeof(struct list));
+   CHECK_NULL(queue, "Allocating queue");
+   queue->size = 0;
+   queue->head = NULL;
+   queue->tail = NULL;
+
+   // push onto queue
+
+   enq_node(queue, src);
+
+   // working set list
+
+   struct list *iolist = malloc(sizeof(struct list));
+   CHECK_NULL(iolist, "Allocating iolist");
+   iolist->size = 0;
+   iolist->head = NULL;
+   iolist->tail = NULL;
+
+   // dequeue items and add them to list
+   // loop and add items + fallocate + run
+   char src_name[PATH_MAX];
+   char dest_name[PATH_MAX];
+   for (int i = 0; i < MAX_FILES; i++)
+   {
+
+      getNextFile(queue, src_name, dest_name);
+
+      if (dest_name == NULL)
+         break;
+
+      struct ioEntry *entry = malloc(sizeof(struct ioEntry));
+      CHECK_NULL(entry, "Allocating ioEntry");
+      char *buffer = malloc(BUFF_SIZE);
+      CHECK_NULL(buffer, "Allocating buffer");
+      struct aiocb *read_aiocb = malloc(sizeof(struct aiocb));
+      CHECK_NULL(read_aiocb, "Allocating aiocb");
+      struct aiocb *write_aiocb = malloc(sizeof(struct aiocb));
+      CHECK_NULL(write_aiocb, "Allocating aiocb");
+
+      int fd_src = open(src_name, O_RDONLY);
+      CHECK_ERROR(fd_src, "Opening src file");
+      int fd_dest = open(dest_name, O_RDWR | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
+      CHECK_ERROR(fd_dest, "Opening dest file");
+
+      // fallocate
+      struct stat file_stat;
+      CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
+      int file_size = file_stat.st_size;
+      CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file");
+
+      entry->reading = 1;
+      entry->fdSrc = fd_src;
+      entry->fdDest = fd_dest;
+      entry->readOff = 0;
+      entry->writeOff = 0;
+      entry->srcName = NULL;
+      entry->destName = NULL;
+      entry->buffer = buffer;
+      entry->readStatus = EINPROGRESS;
+      entry->writeStatus = EINPROGRESS;
+      entry->read_aiocb = read_aiocb;
+      entry->write_aiocb = write_aiocb;
+
+      memset(read_aiocb, 0, sizeof(struct aiocb));
+      memset(write_aiocb, 0, sizeof(struct aiocb));
+
+      read_aiocb->aio_buf = entry->buffer;
+      read_aiocb->aio_fildes = entry->fdSrc;
+      read_aiocb->aio_nbytes = BUFF_SIZE;
+      read_aiocb->aio_offset = 0;
+      read_aiocb->aio_reqprio = 0;
+      read_aiocb->aio_sigevent.sigev_notify = SIGEV_NONE;
+
+      write_aiocb->aio_buf = entry->buffer;
+      write_aiocb->aio_fildes = entry->fdDest;
+      write_aiocb->aio_nbytes = BUFF_SIZE;
+      write_aiocb->aio_offset = 0;
+      write_aiocb->aio_reqprio = 0;
+      write_aiocb->aio_sigevent.sigev_notify = SIGEV_NONE;
+
+      enq_node(iolist, entry);
+   }
+
+   int openReq = 0;
+
+   struct node *cur = iolist->head;
+   for (int idx = 0; idx < iolist->size; idx++)
    {
       openReq++;
-      ioList[i].reading = 1;
-      //printf("I/O Read #%d\n", i);
-      //fflush(stdout);
-      CHECK_ERROR(aio_read(ioList[i].read_aiocb), "Starting First AIO Read");
+      struct ioEntry *entry = (struct ioEntry *)cur->data;
+      CHECK_ERROR(aio_read(entry->read_aiocb), "starting read aio");
+      cur = cur->next;
    }
 
-   // add code to cancel async
+   // then start while loop
+   struct node *cur = iolist->head;
    while (openReq > 0)
    {
-      if (gotSIGQUIT)
+      if (cur == NULL)
+         break;
+      struct ioEntry *entry = (struct ioEntry *)cur->data;
+      if (entry->readStatus == EINPROGRESS)
       {
-         exit(0);
-      }
-
-      // operate on a linked list
-      // when an operation finishes get next value in queue and install + run, (this may cause a bfs search if queue empty of files)
-      // if out of files then remove from linked list and dec open_req
-      for (int i = 0; i < numReq; i++)
-      {
-         if (ioList[i].readStatus == EINPROGRESS)
+         entry->readStatus = aio_error(entry->read_aiocb);
+         switch (entry->readStatus)
          {
-            ioList[i].readStatus = aio_error(ioList[i].read_aiocb);
-            switch (ioList[i].readStatus)
+         case 0:
+            int num_read = aio_return(entry->read_aiocb);
+            entry->readOff += num_read;
+            entry->reading = 0;
+            if (num_read == 0)
             {
-            case 0:
-               // write(STDOUT_FILENO, "I/O completion signal received\n", 31);
-               int num_read = aio_return(ioList[i].read_aiocb);
-               ioList[i].readOff += num_read;
-               ioList[i].reading = 0;
+               // need to open next file and replace values in entry (and start execution)
 
-               //printf("Read %d \n", num_read);
+               getNextFile(queue, src_name, dest_name);
 
-               if(num_read == 0){
-                  //printf("Finished copying\n");
+               if (dest_name == NULL)
+               {
+                  // if empty then decrement and remove from openReq
+                  struct node *temp = cur->prev;
+                  remove_node(queue, cur);
+                  cur = temp;
                   openReq--;
                   break;
                }
-               //printf("Starting write\n");
-               //fflush(stdout);
-               ioList[i].write_aiocb->aio_offset = ioList[i].writeOff;
-               ioList[i].write_aiocb->aio_nbytes = num_read;
-               ioList[i].writeStatus = EINPROGRESS;
-               CHECK_ERROR(aio_write(ioList[i].write_aiocb), "async write");
-               break;
-            case EINPROGRESS:
-               break;
-            default:
-               perror("aio_read error");
-               exit(-1);
-               break;
             }
-         }
-         else if(ioList[i].writeStatus == EINPROGRESS){
-            ioList[i].writeStatus = aio_error(ioList[i].write_aiocb);
-            switch (ioList[i].writeStatus)
-            {
-            case 0:
-               // write(STDOUT_FILENO, "I/O completion signal received\n", 31);
-               int num_write = aio_return(ioList[i].write_aiocb);
-               ioList[i].writeOff += num_write;
-               ioList[i].reading = 0;
-
-               //printf("Starting read\n");
-               //fflush(stdout);
-               ioList[i].read_aiocb->aio_offset = ioList[i].readOff;
-               ioList[i].readStatus = EINPROGRESS;
-               CHECK_ERROR(aio_read(ioList[i].read_aiocb), "async read");
-               break;
-            case EINPROGRESS:
-               break;
-            default:
-               perror("aio_read error");
-               exit(-1);
-               break;
-            }
+            // printf("Starting write\n");
+            // fflush(stdout);
+            entry->write_aiocb->aio_offset = entry->writeOff;
+            entry->write_aiocb->aio_nbytes = num_read;
+            entry->writeStatus = EINPROGRESS;
+            CHECK_ERROR(aio_write(entry->write_aiocb), "async write");
+            break;
+         case EINPROGRESS:
+            break;
+         default:
+            perror("aio_read error");
+            exit(-1);
+            break;
          }
       }
+      else if (entry->writeStatus == EINPROGRESS)
+      {
+         entry->writeStatus = aio_error(entry->write_aiocb);
+         switch (entry->writeStatus)
+         {
+         case 0:
+            // write(STDOUT_FILENO, "I/O completion signal received\n", 31);
+            int num_write = aio_return(entry->write_aiocb);
+            entry->writeOff += num_write;
+            entry->reading = 0;
+
+            // printf("Starting read\n");
+            // fflush(stdout);
+            entry->read_aiocb->aio_offset = entry->readOff;
+            entry->readStatus = EINPROGRESS;
+            CHECK_ERROR(aio_read(entry->read_aiocb), "async read");
+            break;
+         case EINPROGRESS:
+            break;
+         default:
+            perror("aio_read error");
+            exit(-1);
+            break;
+         }
+      }
+      cur = cur->next;
    }
+
+   // check for termination
+
+   // loop over all active entries
+
+   // update status if in progress (read)
+   // Check if read finishes
+   // if amount read is zero file is finished
+   // pop off next file in queue (run bfs again if needed)
+   // if not empty
+   // open new file + fallocate, open file needed for reading
+   // install in place of old ioEntry and run
+   // if empty delete entry and reduce open count
+   // if not finished start write operation
+   // check if write finished
+   // if write finished then start the next readd
+
    clock_t end = clock();
    time_spent += (double)(end - begin) / CLOCKS_PER_SEC;
    printf("The elapsed time is %f seconds", time_spent);
-   close(fd);
-   close(fdDest);
+
+   closedir(src_dir);
 }

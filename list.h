@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include "copy.h"
 /*
 *  Create data structures for the recursion and management of files
 *  Linked List For current I/O events
@@ -14,7 +13,6 @@ struct node{
    void* data;
    struct node* next;
    struct node* prev;
-   struct list* list;
 };
 
 struct list{
@@ -23,12 +21,13 @@ struct list{
    struct node* tail;
 };
 
-void enq(struct list* l, void * data){
+void enq_node(struct list* l, void * data){
    struct node* new_node;
    new_node =  (struct node *)malloc(sizeof (new_node));
-   CHECK_NULL(new_node, "allocating node memory");
-   new_node->idx = l->size;
-   new_node->list = l;
+   if(new_node == NULL){
+      perror("Error allocating memory for node");
+      exit(-1);
+   }
    new_node->data = data;
    if(l->size == 0){
       l->head = new_node;
@@ -52,13 +51,13 @@ void enq(struct list* l, void * data){
    l->size += 1;
 }
 
-void* deq(struct list* l){
+void* deq_node(struct list* l){
    if(l->size == 0)
       return NULL;
    struct node *ret = l->head;
    if(l->size == 1){
       l->head = NULL;
-      l->tail = NULL
+      l->tail = NULL;
    }
    else{
       l->head = ret->next;
@@ -71,30 +70,11 @@ void* deq(struct list* l){
    return data;  
 }
 
-// for list of size 0 or prev is the end of list enq
-void add(struct list* l, struct node* prev, void *data){
-   if(size == 0 || prev == l->tail){
-      enq(l, data);
-      return;
-   }
-   struct node* new_node;
-   new_node =  (struct node *)malloc(sizeof (new_node));
-   CHECK_NULL(new_node, "allocating node memory");
-   new_node->list = l;
-   new_node->data = data;
-   new_node->next = prev->next;
-   new_node->prev = prev;
-   
-   prev->next = new_node;
-   new_node->next->prev = new_node;
-}
-
-void* remove(struct list* l, struct node* n){
-   if(size == 0)
+void* remove_node(struct list* l, struct node* n){
+   if(l->size == 0)
       return NULL;
-   if(size == 1 || n == l->head){
-      void* data = deq(l);
-      return data;
+   if(l->size == 1 || n == l->head){
+      return deq_node(l);
    }
    
    n->prev->next = n->next;
@@ -112,7 +92,7 @@ void* remove(struct list* l, struct node* n){
 
 }
 
-void* replace(struct node* n, void * data){
+void* replace_node(struct node* n, void * data){
    void* old = n->data;
    n->data = data;
    return old;

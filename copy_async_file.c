@@ -1,3 +1,6 @@
+
+#define _GNU_SOURCE 
+
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -7,8 +10,12 @@
 #include <signal.h>
 #include <limits.h>
 #include <string.h>
-#include <time.h>  
+#include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>  
 #include "copy.h"
+#include "logging.h"
+
 
 static volatile sig_atomic_t gotSIGQUIT = 0;
 /* On delivery of SIGQUIT, we attempt to
@@ -89,6 +96,12 @@ int main(int argc, char **argv)
    CHECK_ERROR(fd, "Open SRC");
    int fdDest = open(dest, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
    CHECK_ERROR(fdDest, "OPEN DEST");
+
+   struct stat file_stat;
+   CHECK_ERROR(fstat(fd, &file_stat), "stat");
+   int file_size = file_stat.st_size;
+   CHECK_ERROR(fallocate(fdDest, 0, 0, file_size), "fallocate file");
+
    int numReq = 1;
    int openReq = 0;
    struct ioEntry *ioList;

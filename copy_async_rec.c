@@ -47,7 +47,6 @@ void get_dest(char *src_name, char *dest_name)
 // sets dest_file to correct value, if empty dest_file = NULL
 void getNextFile(struct list *queue, char *src_file, char *dest_file)
 {
-   int fileFound = 0;
    // perform bfs
    while (1)
    {
@@ -83,8 +82,6 @@ void getNextFile(struct list *queue, char *src_file, char *dest_file)
             enq_node(queue, (void *)file_name);
          }
          closedir(dir);
-         getNextFile(queue, src_file, dest_file);
-         break;
       }
       else
       {
@@ -228,7 +225,6 @@ int main(int argc, char **argv)
 
    // then start while loop
    cur = iolist->head;
-   printf("started main loop\n");
    while (openReq > 0)
    {
       if (cur == NULL)
@@ -271,7 +267,16 @@ int main(int argc, char **argv)
                   CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file");
                   entry->read_aiocb->aio_fildes = fd_dest;
                   entry->read_aiocb->aio_offset = 0;
+                  entry->write_aiocb->aio_offset = 0;
+                  entry->write_aiocb->aio_fildes = fd_dest;
                   entry->readStatus = EINPROGRESS;
+                  entry->reading = 0;
+                  entry->readOff = 0;
+                  entry->writeOff = 0;
+                  entry->fdSrc = fd_src;
+                  entry->fdDest = fd_dest;
+                  entry->srcName = src_name;
+                  entry->destName = dest_name;
                   CHECK_ERROR(aio_read(entry->read_aiocb), "async read");
                   break;
                }

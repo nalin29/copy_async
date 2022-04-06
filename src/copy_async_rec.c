@@ -113,7 +113,7 @@ int main(int argc, char **argv)
    DIR *dest_dir;
 
    src_dir = opendir(src);
-   CHECK_NULL(src_dir, 'Opening Src dir');
+   CHECK_NULL(src_dir, "Opening Src dir");
 
    dest_dir = opendir(dest);
    if (dest_dir != NULL)
@@ -155,40 +155,40 @@ int main(int argc, char **argv)
    {
 
       getNextFile(queue, src_name, dest_name);
-      if (dest_name[0] == '\0') {
+      if (dest_name[0] == '\0')
+      {
          break;
       }
 
       struct ioEntry *entry = malloc(sizeof(struct ioEntry));
       CHECK_NULL(entry, "Allocating ioEntry");
+
       char *buffer = malloc(BUFF_SIZE);
       CHECK_NULL(buffer, "Allocating buffer");
+
       struct aiocb *read_aiocb = malloc(sizeof(struct aiocb));
       CHECK_NULL(read_aiocb, "Allocating aiocb");
+
       struct aiocb *write_aiocb = malloc(sizeof(struct aiocb));
       CHECK_NULL(write_aiocb, "Allocating aiocb");
 
       int fd_src = open(src_name, O_RDONLY);
       CHECK_ERROR(fd_src, "Opening src file");
-      int fd_dest = open(dest_name, O_RDWR | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
+      int fd_dest = open(dest_name, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
       CHECK_ERROR(fd_dest, "Opening dest file");
 
       // fallocate
-      struct stat file_stat;
-      CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
-      int file_size = file_stat.st_size;
-      CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file");
+      /*       struct stat file_stat;
+            CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
+            int file_size = file_stat.st_size;
+            CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file"); */
 
       entry->reading = 1;
       entry->fdSrc = fd_src;
       entry->fdDest = fd_dest;
       entry->readOff = 0;
       entry->writeOff = 0;
-      entry->srcName = NULL;
-      entry->destName = NULL;
       entry->buffer = buffer;
-      entry->readStatus = EINPROGRESS;
-      entry->writeStatus = EINPROGRESS;
       entry->read_aiocb = read_aiocb;
       entry->write_aiocb = write_aiocb;
 
@@ -199,15 +199,10 @@ int main(int argc, char **argv)
       read_aiocb->aio_fildes = entry->fdSrc;
       read_aiocb->aio_nbytes = BUFF_SIZE;
       read_aiocb->aio_offset = 0;
-      read_aiocb->aio_reqprio = 0;
-      read_aiocb->aio_sigevent.sigev_notify = SIGEV_NONE;
 
       write_aiocb->aio_buf = entry->buffer;
       write_aiocb->aio_fildes = entry->fdDest;
-      write_aiocb->aio_nbytes = BUFF_SIZE;
       write_aiocb->aio_offset = 0;
-      write_aiocb->aio_reqprio = 0;
-      write_aiocb->aio_sigevent.sigev_notify = SIGEV_NONE;
 
       enq_node(iolist, entry);
    }
@@ -219,6 +214,7 @@ int main(int argc, char **argv)
    {
       openReq++;
       struct ioEntry *entry = (struct ioEntry *)cur->data;
+      entry->readStatus = EINPROGRESS;
       CHECK_ERROR(aio_read(entry->read_aiocb), "starting read aio");
       cur = cur->next;
    }
@@ -235,53 +231,63 @@ int main(int argc, char **argv)
          entry->readStatus = aio_error(entry->read_aiocb);
          switch (entry->readStatus)
          {
-            int num_read;
          case 0:
+            int num_read;
             num_read = aio_return(entry->read_aiocb);
-            entry->readOff += num_read;
-            entry->reading = 0;
             if (num_read == 0)
             {
+               CHECK_ERROR(close(entry->fdSrc), "closing src");
+               CHECK_ERROR(close(entry->fdDest), "closing dest");
                // need to open next file and replace values in entry (and start execution)
 
                getNextFile(queue, src_name, dest_name);
-
 
                if (dest_name[0] == '\0')
                {
                   // if empty then decrement and remove from openReq
                   struct node *temp = cur->prev;
-                  remove_node(queue, cur);
+                  remove_node(iolist, cur);
                   cur = temp;
                   openReq--;
                   break;
                }
-               else {
+               else
+               {
                   int fd_src = open(src_name, O_RDONLY);
                   CHECK_ERROR(fd_src, "Opening src file");
-                  int fd_dest = open(dest_name, O_RDWR | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
+                  int fd_dest = open(dest_name, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
                   CHECK_ERROR(fd_dest, "Opening dest file");
-                  struct stat file_stat;
+
+                  /* struct stat file_stat;
                   CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
                   int file_size = file_stat.st_size;
-                  CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file");
-                  entry->read_aiocb->aio_fildes = fd_dest;
-                  entry->read_aiocb->aio_offset = 0;
-                  entry->write_aiocb->aio_offset = 0;
-                  entry->write_aiocb->aio_fildes = fd_dest;
-                  entry->readStatus = EINPROGRESS;
-                  entry->reading = 0;
+                  CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file"); */
+
+                  entry->fdDest = fd_dest;
+                  entry->fdSrc = fd_src;
                   entry->readOff = 0;
                   entry->writeOff = 0;
-                  entry->fdSrc = fd_src;
-                  entry->fdDest = fd_dest;
-                  entry->srcName = src_name;
-                  entry->destName = dest_name;
+
+                  memset(entry->read_aiocb, 0, sizeof(struct aiocb));
+                  memset(entry->write_aiocb, 0, sizeof(struct aiocb));
+
+                  entry->read_aiocb->aio_fildes = fd_src;
+                  entry->read_aiocb->aio_offset = 0;
+                  entry->read_aiocb->aio_buf = entry->buffer;
+                  entry->read_aiocb->aio_nbytes = BUFF_SIZE;
+
+                  entry->write_aiocb->aio_offset = 0;
+                  entry->write_aiocb->aio_fildes = fd_dest;
+                  entry->write_aiocb->aio_buf = entry->buffer;
+
+                  entry->readStatus = EINPROGRESS;
                   CHECK_ERROR(aio_read(entry->read_aiocb), "async read");
                   break;
                }
             }
-            else {
+            else
+            {
+               entry->readOff += num_read;
                entry->write_aiocb->aio_offset = entry->writeOff;
                entry->write_aiocb->aio_nbytes = num_read;
                entry->writeStatus = EINPROGRESS;
@@ -301,16 +307,14 @@ int main(int argc, char **argv)
          entry->writeStatus = aio_error(entry->write_aiocb);
          switch (entry->writeStatus)
          {
-            int num_write;
          case 0:
             // write(STDOUT_FILENO, "I/O completion signal received\n", 31);
-            num_write = aio_return(entry->write_aiocb);
-            entry->writeOff += num_write;
-            entry->reading = 0;
+            int num_write = aio_return(entry->write_aiocb);
 
-            // printf("Starting read\n");
-            // fflush(stdout);
+            entry->writeOff += num_write;
+
             entry->read_aiocb->aio_offset = entry->readOff;
+            entry->read_aiocb->aio_nbytes = BUFF_SIZE;
             entry->readStatus = EINPROGRESS;
             CHECK_ERROR(aio_read(entry->read_aiocb), "async read");
             break;
@@ -325,24 +329,8 @@ int main(int argc, char **argv)
       cur = cur->next;
    }
 
-   // check for termination
-
-   // loop over all active entries
-
-   // update status if in progress (read)
-   // Check if read finishes
-   // if amount read is zero file is finished
-   // pop off next file in queue (run bfs again if needed)
-   // if not empty
-   // open new file + fallocate, open file needed for reading
-   // install in place of old ioEntry and run
-   // if empty delete entry and reduce open count
-   // if not finished start write operation
-   // check if write finished
-   // if write finished then start the next readd
-
    clock_t end = clock();
-   time_spent += (double)(end - begin) / CLOCKS_PER_SEC;
+   time_spent += (double)(end - begin) / (double)CLOCKS_PER_SEC;
    printf("The elapsed time is %f seconds\n", time_spent);
 
    closedir(src_dir);

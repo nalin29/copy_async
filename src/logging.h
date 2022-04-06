@@ -7,7 +7,6 @@
       perror(message);               \
       exit(-1);                      \
    }                                 \
-   ret;                              \
 })
 
 #define CHECK_NULL(ret, message) ({ \
@@ -24,4 +23,4 @@
       perror(message);                    \
       exit(-1);                           \
    }                                      \
-})                                        \
+})

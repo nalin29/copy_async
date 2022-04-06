@@ -1,20 +1,30 @@
-all: copy_file.out copy_file_inter.out copy_rec.out copy_uring.out
+SHELL = /bin/sh
 
-copy_file.out: copy_async_file.c copy.h list.h
-	gcc -g copy_async_file.c -o copy_file.out -lrt
+.SUFFIXES:
+.SUFFIXES: .c .o .out .h
 
-copy_file_inter.out: copy_async_inter_file.c copy.h list.h
-	gcc -g copy_async_inter_file.c -o copy_file_inter.out -lrt
+SRC_DIR := src
 
-copy_rec.out: copy_async_rec.c copy.h list.h
-	gcc -g copy_async_rec.c -o copy_rec.out -lrt
+CC := gcc
+CFLAGS := -Wall -g
+LIBS := -lrt -luring
+HEAD := $(SRC_DIR)/copy.h $(SRC_DIR)/list.h $(SRC_DIR)/logging.h
 
-copy_uring.o: copy_uring.c
-	gcc -g -c copy_uring.c		
+all: clean copy_async_file.out copy_file_inter.out copy_rec.out copy_uring_file.out
 
-copy_uring.out: copy_uring.o
-	gcc copy_uring.o -o copy_uring.out -luring 	
+copy_async_file.out: $(SRC_DIR)/copy_async_file.c $(HEAD)
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_async_file.c -o copy_async_file.out $(LIBS)
 
+copy_file_inter.out: $(SRC_DIR)/copy_async_inter_file.c $(HEAD)
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_async_inter_file.c -o copy_file_inter.out $(LIBS)
+
+copy_rec.out: $(SRC_DIR)/copy_async_rec.c $(HEAD)
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_async_rec.c -o copy_rec.out $(LIBS)
+
+copy_uring_file.out: $(SRC_DIR)/copy_uring_file.c $(HEAD)
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_file.c -o copy_uring_file.out $(LIBS)	
 
 clean:
 	rm -rf *.out *.o
+
+.PHONY: clean all

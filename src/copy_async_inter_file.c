@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -8,6 +10,8 @@
 #include <limits.h>
 #include <string.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "copy.h"
 #include "list.h"
 #include "logging.h"
@@ -74,7 +78,6 @@ int main(int argc, char **argv)
 
    install_sigquit_signal_handler();
 
-   int ret;
    // need to change this to operate on linked list
    // also needs deque files from the bfs queue (if directory then mkdir)
    for (int j = 0; j < files; j++)

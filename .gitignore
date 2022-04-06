@@ -350,8 +350,9 @@ MigrationBackup/
 .ionide/
 
 # text test cases
-*.txt
 .vscode/
 *.bin
 *.out
 *.o
+test_src/
+test_dest/

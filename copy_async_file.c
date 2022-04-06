@@ -187,9 +187,10 @@ int main(int argc, char **argv)
             ioList[i].readStatus = aio_error(ioList[i].read_aiocb);
             switch (ioList[i].readStatus)
             {
+               int num_read;
             case 0:
                // write(STDOUT_FILENO, "I/O completion signal received\n", 31);
-               int num_read = aio_return(ioList[i].read_aiocb);
+               num_read = aio_return(ioList[i].read_aiocb);
                ioList[i].readOff += num_read;
                ioList[i].reading = 0;
 
@@ -219,9 +220,10 @@ int main(int argc, char **argv)
             ioList[i].writeStatus = aio_error(ioList[i].write_aiocb);
             switch (ioList[i].writeStatus)
             {
+               int num_write;
             case 0:
                // write(STDOUT_FILENO, "I/O completion signal received\n", 31);
-               int num_write = aio_return(ioList[i].write_aiocb);
+               num_write = aio_return(ioList[i].write_aiocb);
                ioList[i].writeOff += num_write;
                ioList[i].reading = 0;
 

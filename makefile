@@ -6,7 +6,7 @@ SHELL = /bin/sh
 SRC_DIR := src
 
 CC := gcc
-CFLAGS := -Wall -g
+CFLAGS := -Wall -g -D_GNU_SOURCE -O2
 LIBS := -lrt -luring
 HEAD := $(SRC_DIR)/copy.h $(SRC_DIR)/list.h $(SRC_DIR)/logging.h
 

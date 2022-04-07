@@ -23,7 +23,7 @@ struct list{
 
 void enq_node(struct list* l, void * data){
    struct node* new_node;
-   new_node =  (struct node *)malloc(sizeof (new_node));
+   new_node =  (struct node *)malloc(sizeof (struct node));
    if(new_node == NULL){
       perror("Error allocating memory for node");
       exit(-1);

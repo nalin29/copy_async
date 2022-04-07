@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 
 #include <fcntl.h>
 #include <stdlib.h>
@@ -71,7 +70,7 @@ int main(int argc, char **argv)
    CHECK_NULL(aiocbList, "Allocating aiocb list");
    bufList = calloc(numReq, BUFF_SIZE);
    CHECK_NULL(bufList, "Allocating buflist");
-   fileNameList = calloc(2 * files, PATH_MAX);
+   fileNameList = calloc(2 * files, PATH_MAX + 1);
    CHECK_NULL(fileNameList, "Allocating Filename List");
 
    // add method call that will bfs through directories and build queue of files and directories
@@ -85,8 +84,8 @@ int main(int argc, char **argv)
       for (int i = 0; i < numReq; i++)
       {
          // set pointers
-         ioList[i].srcName = &fileNameList[2 * j * PATH_MAX];
-         ioList[i].destName = &fileNameList[(2 * j + 1) * PATH_MAX];
+         ioList[i].srcName = &fileNameList[2 * j * (PATH_MAX+1)];
+         ioList[i].destName = &fileNameList[(2 * j + 1) * (PATH_MAX+1)];
          ioList[i].buffer = &bufList[i * (BUFF_SIZE)];
          ioList[i].read_aiocb = &aiocbList[2 * i];
          ioList[i].write_aiocb = &aiocbList[2 * i + 1];

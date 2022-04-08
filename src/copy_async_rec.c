@@ -172,9 +172,9 @@ int main(int argc, char **argv)
       struct aiocb *write_aiocb = malloc(sizeof(struct aiocb));
       CHECK_NULL(write_aiocb, "Allocating aiocb");
 
-      int fd_src = open(src_name, O_RDONLY | O_DIRECT);
+      int fd_src = open(src_name, O_RDONLY);
       CHECK_ERROR(fd_src, "Opening src file");
-      int fd_dest = open(dest_name, O_WRONLY | O_CREAT | O_DIRECT, S_IRWXU | S_IRWXO | S_IRWXG);
+      int fd_dest = open(dest_name, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
       CHECK_ERROR(fd_dest, "Opening dest file");
 
       // fallocate
@@ -253,9 +253,9 @@ int main(int argc, char **argv)
                }
                else
                {
-                  int fd_src = open(src_name, O_RDONLY | O_DIRECT);
+                  int fd_src = open(src_name, O_RDONLY);
                   CHECK_ERROR(fd_src, "Opening src file");
-                  int fd_dest = open(dest_name, O_WRONLY | O_CREAT | O_DIRECT, S_IRWXU | S_IRWXO | S_IRWXG);
+                  int fd_dest = open(dest_name, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
                   CHECK_ERROR(fd_dest, "Opening dest file");
 
                   /* struct stat file_stat;

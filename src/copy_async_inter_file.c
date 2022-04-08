@@ -46,9 +46,9 @@ int main(int argc, char **argv)
    }
    char *src = argv[1];
    char *dest = argv[2];
-   int fd = open(src, O_RDONLY | O_DIRECT);
+   int fd = open(src, O_RDONLY);
    CHECK_ERROR(fd, "Open SRC");
-   int fdDest = open(dest, O_WRONLY | O_CREAT | O_TRUNC | O_DIRECT, S_IRWXU | S_IRWXG | S_IRWXO);
+   int fdDest = open(dest, O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU | S_IRWXG | S_IRWXO);
    CHECK_ERROR(fdDest, "OPEN DEST");
    struct stat file_stat;
    CHECK_ERROR(fstat(fd, &file_stat), "stat");

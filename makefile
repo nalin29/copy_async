@@ -31,7 +31,7 @@ copy_uring_inter_file.out: $(SRC_DIR)/copy_uring_inter_file.c $(HEAD)
 clean:
 	rm -rf *.out *.o
 
-release: CFLAGS += -O3
+release: CFLAGS += -Ofast
 release: all
 
 debug: CFLAGS += -g -Wall 

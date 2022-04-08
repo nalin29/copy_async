@@ -18,8 +18,8 @@ int main(int argc, char ** argv){
    char* src = argv[1];
    char* dst = argv[2];
 
-   int fd_src = open(src, O_RDONLY);
-   int fd_dst = open(dst, O_WRONLY | O_TRUNC | O_CREAT, S_IRWXU | S_IRWXG | S_IRWXO);
+   int fd_src = open(src, O_RDONLY | O_DIRECT);
+   int fd_dst = open(dst, O_WRONLY | O_TRUNC | O_CREAT | O_DIRECT, S_IRWXU | S_IRWXG | S_IRWXO);
 
    struct ioEntry* entry = malloc(sizeof(struct ioEntry));
 

@@ -14,7 +14,7 @@
 #include "list.h"
 #include "logging.h"
 
-#define QD 128
+#define QD 32
 #define BS (128 * 1024)
 
 static int infd, outfd;
@@ -34,7 +34,7 @@ int main(int argc, char *argv[])
 
     if (argc < 3)
     {
-        printf("Usage: %s <infile> <outfile>\n", argv[0]);
+        printf("Usage: %s <infile> <outfile> [options]\n", argv[0]);
         return 1;
     }
 
@@ -64,11 +64,12 @@ int main(int argc, char *argv[])
         }
     }
 
+    struct stat file_stat;
+    CHECK_ERROR(fstat(infd, &file_stat), "fstat");
+    file_size = file_stat.st_size;
+
     if (fallocate_option)
     {
-        struct stat file_stat;
-        CHECK_ERROR(fstat(infd, &file_stat), "fstat");
-        file_size = file_stat.st_size;
         CHECK_ERROR(fallocate(outfd, 0, 0, file_size), "fallocate");
     }
 
@@ -77,59 +78,87 @@ int main(int argc, char *argv[])
 
     CHECK_ERROR(io_uring_queue_init(QD, ring, 0), "init ring");
 
-    struct ioUringEntry *entry = (struct ioUringEntry *)malloc(sizeof(struct ioUringEntry));
-    CHECK_NULL(entry, "allocating entry");
+    long totalBlocks = (file_size + (BS - 1)) / (BS);
 
-    entry->buffer = malloc(BS);
-    CHECK_NULL(entry->buffer, "allocating buffer");
+    struct iovec *iovecs = calloc(QD, (sizeof(struct iovec)));
+    CHECK_NULL(iovecs, "allocating iovecs");
 
-    entry->iov = (struct iovec*)malloc(sizeof(struct iovec));
-    CHECK_NULL(entry->iov, "allocating iov");
+    char *buffers = calloc(QD, BS);
+    CHECK_NULL(buffers, "allocating buffers");
 
-    struct io_uring_sqe *sqe;
+    for (int i = 0; i < QD; i++)
+    {
+        iovecs[i].iov_base = &buffers[i * BS];
+        iovecs[i].iov_len = BS;
+    }
 
-    entry->read = 1;
-    entry->readOff = 0;
-    entry->writeOff = 0;
-    entry->fdDest = outfd;
-    entry->fdSrc = infd;
-    entry->iov->iov_base = entry->buffer;
-    entry->iov->iov_len = BS;
-
+    // register buffers
     if (register_option)
     {
-        CHECK_ERROR(io_uring_register_buffers(ring, entry->iov, 1), "registering buffer");
+        io_uring_register_buffers(ring, iovecs, QD);
     }
 
-    sqe = io_uring_get_sqe(ring);
-    CHECK_NULL(sqe, "getting sqe");
+    int blocksExecuted = 0;
+    int in_flight = 0;
 
-    if (register_option)
+    // generate entries (up to QD)
+    for (int i = 0; i < QD; i++)
     {
-        io_uring_prep_read_fixed(sqe, infd, entry->buffer, BS, entry->readOff, 0);
-    }
-    else
-    {
-        io_uring_prep_readv(sqe, infd, entry->iov, 1, entry->readOff);
-    }
+        struct ioUringEntry *entry = malloc(sizeof(struct ioUringEntry));
+        CHECK_NULL(entry, "allocating an entry");
+        // set values for entries
+        entry->read = 1;
+        entry->readOff = i * BS;
+        entry->writeOff = i * BS;
+        entry->fdSrc = infd;
+        entry->fdDest = outfd;
+        entry->buff_index = i;
+        entry->iov = &iovecs[i];
+        entry->buffer = entry->iov->iov_base;
 
-    io_uring_sqe_set_data(sqe, entry);
+        // add to ring
+        struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+        CHECK_NULL(sqe, "getting sqe");
+
+        if (register_option)
+        {
+            io_uring_prep_read_fixed(sqe, entry->fdSrc, entry->buffer, BS, entry->readOff, entry->buff_index);
+        }
+        else
+        {
+            io_uring_prep_readv(sqe, infd, entry->iov, 1, entry->readOff);
+        }
+
+        io_uring_sqe_set_data(sqe, entry);
+
+        // count remaining read/write
+
+        in_flight++;
+        blocksExecuted++;
+        if (blocksExecuted == totalBlocks)
+            break;
+    }
 
     CHECK_ERROR(io_uring_submit(ring), "submitting to ring");
 
-    while (1)
+    // loop
+    while (in_flight > 0)
     {
+        struct io_uring_sqe *sqe;
         struct io_uring_cqe *cqe;
         struct ioUringEntry *entry;
         CHECK_ERROR(io_uring_wait_cqe(ring, &cqe), "waiting for cqe");
+
         if (!cqe)
             break;
+
         entry = (struct ioUringEntry *)io_uring_cqe_get_data(cqe);
         CHECK_NULL(entry, "getting entry from cqe");
 
         int res = cqe->res;
         CHECK_ERROR(res, "result of cqe");
 
+        // if read then execute write
         if (entry->read)
         {
             int num_read = res;
@@ -145,7 +174,7 @@ int main(int argc, char *argv[])
             CHECK_NULL(sqe, "getting sqe");
             if (register_option)
             {
-                io_uring_prep_write_fixed(sqe, outfd, entry->buffer, num_read, entry->writeOff, 0);
+                io_uring_prep_write_fixed(sqe, outfd, entry->buffer, num_read, entry->writeOff, entry->buff_index);
             }
             else
             {
@@ -156,27 +185,36 @@ int main(int argc, char *argv[])
 
             CHECK_ERROR(io_uring_submit(ring), "submitting to ring");
         }
+        // if write then either queue new read or delete
         else
         {
-            int num_write = cqe->res;
-            entry->read = 1;
-            entry->writeOff += num_write;
-            entry->iov->iov_len = BS;
-            sqe = io_uring_get_sqe(ring);
-            CHECK_NULL(sqe, "getting sqe");
-
-            if (register_option)
+            if (blocksExecuted < totalBlocks)
             {
-                io_uring_prep_read_fixed(sqe, infd, entry->buffer, BS, entry->readOff, 0);
+                blocksExecuted++;
+                entry->read = 1;
+                entry->readOff = blocksExecuted * BS;
+                entry->writeOff = entry->readOff;
+                entry->iov->iov_len = BS;
+                sqe = io_uring_get_sqe(ring);
+                CHECK_NULL(sqe, "getting sqe");
+                if (register_option)
+                {
+                    io_uring_prep_read_fixed(sqe, infd, entry->buffer, BS, entry->readOff, entry->buff_index);
+                }
+                else
+                {
+                    io_uring_prep_readv(sqe, infd, entry->iov, 1, entry->readOff);
+                }
+                io_uring_sqe_set_data(sqe, entry);
+
+                CHECK_ERROR(io_uring_submit(ring), "submitting to ring");
             }
             else
             {
-                io_uring_prep_readv(sqe, infd, entry->iov, 1, entry->readOff);
+                in_flight--;
             }
-
-            io_uring_sqe_set_data(sqe, entry);
-            CHECK_ERROR(io_uring_submit(ring), "submitting to ring");
         }
+        // seen
         io_uring_cqe_seen(ring, cqe);
     }
 

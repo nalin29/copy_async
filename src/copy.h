@@ -38,5 +38,7 @@ struct ioUringEntry
    int writeOff;
    char* buffer;
    int buff_index;
+   off_t file_size;
+   int op_count;
    struct iovec* iov;
 };

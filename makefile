@@ -11,7 +11,7 @@ LIBS := -lrt -luring
 HEAD := $(SRC_DIR)/copy.h $(SRC_DIR)/list.h $(SRC_DIR)/logging.h
 
 
-all: clean copy_async_file.out copy_file_inter.out copy_rec.out copy_uring_file.out copy_uring_inter_file.out
+all: clean copy_async_file.out copy_file_inter.out copy_rec.out copy_uring_file.out copy_uring_inter_file.out copy_uring_rec.out
 
 copy_async_file.out: $(SRC_DIR)/copy_async_file.c $(HEAD)
 	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_async_file.c -o copy_async_file.out $(LIBS)
@@ -26,7 +26,10 @@ copy_uring_file.out: $(SRC_DIR)/copy_uring_file.c $(HEAD)
 	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_file.c -o copy_uring_file.out $(LIBS)
 
 copy_uring_inter_file.out: $(SRC_DIR)/copy_uring_inter_file.c $(HEAD)
-	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_inter_file.c -o copy_uring_inter_file.out $(LIBS)	
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_inter_file.c -o copy_uring_inter_file.out $(LIBS)
+
+copy_uring_rec.out: $(SRC_DIR)/copy_uring_rec.c $(HEAD)
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_rec.c -o copy_uring_rec.out $(LIBS)		
 
 clean:
 	rm -rf *.out *.o

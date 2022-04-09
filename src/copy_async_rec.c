@@ -11,6 +11,7 @@
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include "copy.h"
 #include "list.h"
 #include "logging.h"
@@ -19,6 +20,12 @@ static volatile sig_atomic_t gotSIGQUIT = 0;
 char *src;
 char *dest;
 int src_name_size;
+int f_opt = 0;
+int d_opt = 0;
+int i_opt = 0;
+int b_opt = 0;
+int writeFlags = O_WRONLY | O_CREAT;
+int readFlags = O_RDONLY;
 /* On delivery of SIGQUIT, we attempt to
    cancel all outstanding I/O requests */
 
@@ -94,14 +101,37 @@ void getNextFile(struct list *queue, char *src_file, char *dest_file)
 
 int main(int argc, char **argv)
 {
-   double time_spent = 0.0;
-   clock_t begin = clock();
+   struct timespec start, end;
+
+   CHECK_ERROR(clock_gettime(CLOCK_MONOTONIC, &start), "getting start time");
 
    // arg1 directory structure to copy, arg2 destination directory
    if (argc < 3)
    {
       printf("Need to have src and dest\n");
       return -1;
+   }
+
+   for (int i = 3; i < argc; i++)
+   {
+      if (strcmp(argv[i], "-f") == 0)
+      {
+         f_opt = 1;
+      }
+      else if (strcmp(argv[i], "-d") == 0)
+      {
+         d_opt = 1;
+         readFlags |= O_DIRECT;
+         writeFlags |= O_DIRECT;
+      }
+      else if (strcmp(argv[i], "-b") == 0)
+      {
+         b_opt = 1;
+      }
+      else if (strcmp(argv[i], "-i") == 0)
+      {
+         i_opt = 1;
+      }
    }
 
    src = argv[1];
@@ -163,7 +193,7 @@ int main(int argc, char **argv)
       struct ioEntry *entry = malloc(sizeof(struct ioEntry));
       CHECK_NULL(entry, "Allocating ioEntry");
 
-      char *buffer = malloc(BUFF_SIZE);
+      char *buffer = mmap(NULL, BUFF_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
       CHECK_NULL(buffer, "Allocating buffer");
 
       struct aiocb *read_aiocb = malloc(sizeof(struct aiocb));
@@ -172,16 +202,18 @@ int main(int argc, char **argv)
       struct aiocb *write_aiocb = malloc(sizeof(struct aiocb));
       CHECK_NULL(write_aiocb, "Allocating aiocb");
 
-      int fd_src = open(src_name, O_RDONLY);
+      int fd_src = open(src_name, readFlags);
       CHECK_ERROR(fd_src, "Opening src file");
-      int fd_dest = open(dest_name, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
+      int fd_dest = open(dest_name, writeFlags, S_IRWXU | S_IRWXO | S_IRWXG);
       CHECK_ERROR(fd_dest, "Opening dest file");
 
-      // fallocate
-      /*       struct stat file_stat;
-            CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
-            int file_size = file_stat.st_size;
-            CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file"); */
+      if (f_opt)
+      {
+         struct stat file_stat;
+         CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
+         int file_size = file_stat.st_size;
+         CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file");
+      }
 
       entry->reading = 1;
       entry->fdSrc = fd_src;
@@ -253,15 +285,18 @@ int main(int argc, char **argv)
                }
                else
                {
-                  int fd_src = open(src_name, O_RDONLY);
+                  int fd_src = open(src_name, readFlags);
                   CHECK_ERROR(fd_src, "Opening src file");
-                  int fd_dest = open(dest_name, O_WRONLY | O_CREAT, S_IRWXU | S_IRWXO | S_IRWXG);
+                  int fd_dest = open(dest_name, writeFlags, S_IRWXU | S_IRWXO | S_IRWXG);
                   CHECK_ERROR(fd_dest, "Opening dest file");
 
-                  /* struct stat file_stat;
-                  CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
-                  int file_size = file_stat.st_size;
-                  CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file"); */
+                  if (f_opt)
+                  {
+                     struct stat file_stat;
+                     CHECK_ERROR(fstat(fd_src, &file_stat), "stat");
+                     int file_size = file_stat.st_size;
+                     CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file");
+                  }
 
                   entry->fdDest = fd_dest;
                   entry->fdSrc = fd_src;
@@ -329,9 +364,11 @@ int main(int argc, char **argv)
       cur = cur->next;
    }
 
-   clock_t end = clock();
-   time_spent += (double)(end - begin) / (double)CLOCKS_PER_SEC;
-   printf("The elapsed time is %f seconds\n", time_spent);
+   clock_gettime(CLOCK_MONOTONIC, &end);
+   double time_taken;
+   time_taken = (end.tv_sec - start.tv_sec) * 1e9;
+   time_taken = (time_taken + (end.tv_nsec - start.tv_nsec)) * 1e-9;
+   printf("The elapsed time is %f seconds\n", time_taken);
 
    closedir(src_dir);
 }

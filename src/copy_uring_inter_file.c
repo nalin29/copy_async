@@ -177,8 +177,8 @@ void copy_file_linked(struct io_uring *ring, off_t file_size)
         entry->writeOff = cur_off;
         entry->fdSrc = infd;
         entry->fdDest = outfd;
-        entry->buff_index = i;
-        entry->iov = &iovecs[i];
+        entry->buff_index = i/2;
+        entry->iov = &iovecs[i/2];
         entry->iov->iov_len = length;
         entry->buffer = entry->iov->iov_base;
 

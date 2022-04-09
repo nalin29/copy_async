@@ -9,16 +9,13 @@
 #include <liburing.h>
 #include <sys/ioctl.h>
 
-#define BUFF_SIZE (128 * 1024)
-
-#define MAX_FILES 100
-
 struct ioEntry
 {
    int reading;
    int fdSrc;
    int fdDest;
    int readOff;
+   int last;
    int writeOff;
    char *srcName;
    char *destName;
@@ -33,6 +30,7 @@ struct ioUringEntry
 {
    int fdSrc;
    int fdDest;
+   int last;
    int read;
    int readOff;
    int writeOff;

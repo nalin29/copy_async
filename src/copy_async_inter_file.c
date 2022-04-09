@@ -14,7 +14,8 @@
 #include "copy.h"
 #include "list.h"
 #include "logging.h"
-
+int MAX_FILES = 128;
+int BUFF_SIZE = (128 * 1024);
 static volatile sig_atomic_t gotSIGQUIT = 0;
 /* On delivery of SIGQUIT, we attempt to
    cancel all outstanding I/O requests */

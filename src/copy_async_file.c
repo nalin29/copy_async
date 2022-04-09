@@ -13,7 +13,8 @@
 #include <sys/stat.h>
 #include "copy.h"
 #include "logging.h"
-
+int MAX_FILES = 128;
+int BUFF_SIZE = (128 * 1024);
 int main(int argc, char ** argv){
    char* src = argv[1];
    char* dst = argv[2];

@@ -16,8 +16,8 @@
 #include "list.h"
 #include "logging.h"
 
-#define QD 64
-#define BS BUFF_SIZE
+off_t QD = 64;
+off_t BS = (128 * 1024);
 
 int f_opt = 0;
 int rb_opt = 0;
@@ -332,8 +332,6 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    // if file consumed
    if (head->remainingBytes <= 0)
    {
-      close(head->infd);
-      close(head->outfd);
       free(deq_node(executingQueue));
       ret = enq_new_file(executingQueue, fileQueue);
       if (ret < 0)
@@ -350,6 +348,11 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
 
    head->off += entry->iov->iov_len;
    head->remainingBytes -= entry->iov->iov_len;
+
+   if (head->remainingBytes == 0)
+      entry->last = 1;
+   else
+      entry->last = 0;
 
    return 0;
 }
@@ -430,6 +433,20 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
    }
 }
 
+void print_usage(){
+   printf("Usage: cp_uring_rec SOURCE DEST [OPTION]\n");
+   printf("Recursivly copy source folder to new destination folder\n\n");
+   printf("Optional Flags:\n");
+   printf("-h\t\tTo bring up help menu\n");
+   printf("-f\t\tenables use of fallocate\n");
+   printf("-rb\t\tRegisters Buffers for zero copy (Warning: max size 4Mb (bs * qd/2))\n");
+   printf("-i\t\tAllows mutiple concurrent operations on a single file\n");
+   printf("-d\t\tDirectly addresses storage device, no-buffering (all file size must multiple of 4096)\n");
+   printf("-bs [int]\tSet size of buffer in Kb (default is 128kb)\n");
+   printf("-qd [int]\tSet depth of Queue (Default is 64)\n");
+   exit(0);
+}
+
 int main(int argc, char **argv)
 {
 
@@ -443,7 +460,7 @@ int main(int argc, char **argv)
    if (argc < 3)
    {
       printf("Need to have src and dest\n");
-      return -1;
+      print_usage();
    }
 
    // read options
@@ -470,6 +487,44 @@ int main(int argc, char **argv)
       {
          read_flags |= O_DIRECT;
          write_flags |= O_DIRECT;
+      }
+      else if (strcmp(s, "-bs") == 0)
+      {
+         if (i + 1 < argc)
+         {
+            int x = atoi(argv[i + 1]);
+            if (x == 0)
+            {
+               printf("invalid value for bs\n");
+               print_usage();
+            }
+            BS = x * 1024;
+         }
+         else{
+            printf("no value for BS\n");
+            print_usage();
+         }
+      }
+      else if (strcmp(s, "-qd") == 0)
+      {
+         if (i + 1 < argc)
+         {
+            int x = atoi(argv[i + 1]);
+            if (x == 0)
+            {
+               printf("invalid value for qd\n");
+               print_usage();
+            }
+            QD = x;
+         }
+         else{
+             printf("no value for QD\n");
+            print_usage();
+         }
+      }
+      else if (strcmp(s, "-h") == 0)
+      {
+         print_usage();
       }
    }
 

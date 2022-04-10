@@ -272,14 +272,6 @@ void rec_copy(struct list *queue, struct io_uring *ring)
    }
 }
 
-struct file_entry
-{
-   int infd;
-   int outfd;
-   off_t remainingBytes;
-   off_t off;
-};
-
 int enq_new_file(struct list *executingQueue, struct list *fileQueue)
 {
    char src_path[PATH_MAX + 1];

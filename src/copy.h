@@ -40,3 +40,11 @@ struct ioUringEntry
    int op_count;
    struct iovec* iov;
 };
+
+struct file_entry
+{
+   int infd;
+   int outfd;
+   off_t remainingBytes;
+   off_t off;
+};

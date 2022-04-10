@@ -6,12 +6,12 @@ SHELL = /bin/sh
 SRC_DIR := src
 
 CC := gcc
-CFLAGS := -D_GNU_SOURCE
+CFLAGS := -Wall
 LIBS := -lrt -luring
 HEAD := $(SRC_DIR)/copy.h $(SRC_DIR)/list.h $(SRC_DIR)/logging.h
 
 
-all: clean copy_async_file.out copy_file_inter.out copy_aio_rec.out copy_uring_file.out copy_uring_inter_file.out copy_uring_rec.out
+all: clean copy_aio_rec.out copy_uring_rec.out
 
 copy_async_file.out: $(SRC_DIR)/copy_async_file.c $(HEAD)
 	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_async_file.c -o copy_async_file.out $(LIBS)
@@ -37,7 +37,7 @@ clean:
 release: CFLAGS += -Ofast
 release: all
 
-debug: CFLAGS += -g -Wall 
+debug: CFLAGS += -g 
 debug:all
 
 .PHONY: clean release

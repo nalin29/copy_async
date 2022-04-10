@@ -1,3 +1,5 @@
+#define _GNU_SOURCE 
+
 #include <stdio.h>
 #include <fcntl.h>
 #include <string.h>
@@ -21,8 +23,7 @@ off_t BS = (128 * 1024);
 
 int f_opt = 0;
 int rb_opt = 0;
-int buff_opt = 0;
-int link_opt = 0;
+int batch_opt = 0;
 int inter_opt = 0;
 
 int read_flags = O_RDONLY;
@@ -433,7 +434,87 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
    }
 }
 
-void print_usage(){
+void rec_copy_batch(struct list *queue, struct io_uring *ring)
+{
+   // create executingQueue
+   struct list *executingQueue;
+   executingQueue = (struct list *)malloc(sizeof(struct list));
+   CHECK_NULL(executingQueue, "allocating queue for files in use");
+   executingQueue->head = NULL;
+   executingQueue->tail = NULL;
+   executingQueue->size = 0;
+
+   int in_flight = 0;
+
+   int ret;
+   for (int i = 0; i < QD; i += 2)
+   {
+      struct ioUringEntry *entry;
+      entry = (struct ioUringEntry *)malloc(sizeof(struct ioUringEntry));
+      entry->iov = &iovecs[i / 2];
+      entry->buff_index = i / 2;
+      entry->buffer = entry->iov->iov_base;
+      entry->op_count = 0;
+      ret = get_next_entry(executingQueue, queue, entry);
+      if (ret < 0)
+      {
+         free(entry);
+         break;
+      }
+      add_rw_pair(ring, entry);
+      in_flight += 2;
+   }
+
+   while (in_flight > 0)
+   {
+      struct io_uring_cqe *cqe;
+      int num = io_uring_submit_and_wait(ring, in_flight);
+
+      for (int i = 0; i < num; i++)
+      {
+         ret = io_uring_peek_cqe(ring, &cqe);
+         CHECK_ERROR(ret, "peeking cqe");
+
+         if (!cqe)
+            break;
+
+         struct ioUringEntry *entry;
+         entry = (struct ioUringEntry *)io_uring_cqe_get_data(cqe);
+
+         CHECK_NULL(entry, "getting entry from cqe");
+
+         int res;
+         res = cqe->res;
+         CHECK_ERROR(res, "result of cqe");
+
+         in_flight--;
+         entry->op_count++;
+         switch (entry->op_count)
+         {
+         case 2:
+            entry->op_count = 0;
+            ret = get_next_entry(executingQueue, queue, entry);
+            if (ret == 0)
+            {
+               add_rw_pair(ring, entry);
+               in_flight += 2;
+            }
+            else
+            {
+               free(entry);
+            }
+            break;
+         default:
+            break;
+         }
+         // mark seen
+         io_uring_cqe_seen(ring, cqe);
+      }
+   }
+}
+
+void print_usage()
+{
    printf("Usage: cp_uring_rec SOURCE DEST [OPTION]\n");
    printf("Recursivly copy source folder to new destination folder\n\n");
    printf("Optional Flags:\n");
@@ -441,6 +522,7 @@ void print_usage(){
    printf("-f\t\tenables use of fallocate\n");
    printf("-rb\t\tRegisters Buffers for zero copy (Warning: max size 4Mb (bs * qd/2))\n");
    printf("-i\t\tAllows mutiple concurrent operations on a single file\n");
+   printf("-b\t\tBatches Requests (automatically enables -i)\n");
    printf("-d\t\tDirectly addresses storage device, no-buffering (all file size must multiple of 4096)\n");
    printf("-bs [int]\tSet size of buffer in Kb (default is 128kb)\n");
    printf("-qd [int]\tSet depth of Queue (Default is 64)\n");
@@ -475,9 +557,9 @@ int main(int argc, char **argv)
       {
          rb_opt = 1;
       }
-      else if (strcmp(s, "-l") == 0)
+      else if (strcmp(s, "-b") == 0)
       {
-         link_opt = 1;
+         batch_opt = 1;
       }
       else if (strcmp(s, "-i") == 0)
       {
@@ -500,7 +582,8 @@ int main(int argc, char **argv)
             }
             BS = x * 1024;
          }
-         else{
+         else
+         {
             printf("no value for BS\n");
             print_usage();
          }
@@ -517,8 +600,9 @@ int main(int argc, char **argv)
             }
             QD = x;
          }
-         else{
-             printf("no value for QD\n");
+         else
+         {
+            printf("no value for QD\n");
             print_usage();
          }
       }
@@ -588,7 +672,10 @@ int main(int argc, char **argv)
       io_uring_register_buffers(ring, iovecs, QD / 2);
    }
 
-   if (inter_opt)
+   if(batch_opt){
+      rec_copy_batch(queue, ring);
+   }
+   else if (inter_opt)
    {
       rec_copy_inter(queue, ring);
    }

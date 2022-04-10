@@ -1,3 +1,5 @@
+#define _GNU_SOURCE 
+
 #include <fcntl.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -476,8 +478,7 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
          switch (entry->writeStatus)
          {
          case 0:
-            int num_write;
-            num_write = aio_return(entry->read_aiocb);
+            CHECK_ERROR(aio_return(entry->read_aiocb), "write return");
             memset(entry->read_aiocb, 0, sizeof(struct aiocb));
             memset(entry->write_aiocb, 0, sizeof(struct aiocb));
 
@@ -517,6 +518,132 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
    }
 }
 
+void copy_batch_rec(struct list *queue, struct list *iolist)
+{
+
+   struct list *executingQueue;
+   executingQueue = (struct list *)malloc(sizeof(struct list));
+   CHECK_NULL(executingQueue, "allocating queue for files in use");
+   executingQueue->head = NULL;
+   executingQueue->tail = NULL;
+   executingQueue->size = 0;
+
+   int num_read = 0;
+   int num_write = 0;
+
+   struct aiocb* read_aiocbs[MAX_FILES];
+   struct aiocb* write_aiocbs[MAX_FILES];
+   struct ioEntry *entries = mmap(NULL, sizeof(struct ioEntry) * MAX_FILES, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+   CHECK_NULL(entries, "Allocating entries");
+   // dequeue items and add them to list
+   // loop and add items + fallocate + run
+   for (int i = 0; i < MAX_FILES; i++)
+   {
+
+      struct ioEntry *entry = &entries[i];
+
+      char *buffer = mmap(NULL, BUFF_SIZE, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+      CHECK_NULL(buffer, "Allocating buffer");
+
+      struct aiocb *read_aiocb = malloc(sizeof(struct aiocb));
+      CHECK_NULL(read_aiocb, "allocation read aiocb");
+
+      struct aiocb *write_aiocb = malloc(sizeof(struct aiocb));
+      CHECK_NULL(write_aiocb, "allocation read aiocb");
+
+      entry->read_aiocb = read_aiocb;
+      entry->write_aiocb = write_aiocb;
+
+      read_aiocbs[i] = entry->read_aiocb;
+      write_aiocbs[i] = entry->write_aiocb;
+
+      memset(read_aiocb, 0, sizeof(struct aiocb));
+      memset(write_aiocb, 0, sizeof(struct aiocb));
+
+      int ret = get_next_entry(executingQueue, queue, entry);
+      if (ret < 0)
+      {
+         free(entry);
+         free(read_aiocb);
+         free(write_aiocb);
+         munmap(buffer, BUFF_SIZE);
+         break;
+      }
+
+      entry->reading = 1;
+      entry->buffer = buffer;
+
+      read_aiocb->aio_buf = entry->buffer;
+      read_aiocb->aio_fildes = entry->fdSrc;
+      read_aiocb->aio_offset = entry->readOff;
+      read_aiocb->aio_lio_opcode = LIO_READ;
+
+      num_read++;
+
+      write_aiocb->aio_buf = entry->buffer;
+      write_aiocb->aio_fildes = entry->fdDest;
+      write_aiocb->aio_offset = entry->writeOff;
+      write_aiocb->aio_lio_opcode = LIO_WRITE;
+
+      entry->readStatus = EINPROGRESS;
+
+      enq_node(iolist, entry);
+   }
+
+   // then start while loop
+
+   while (num_read > 0 || num_write > 0)
+   {
+      CHECK_ERROR(lio_listio(LIO_WAIT, read_aiocbs, num_read, NULL), "batched read");
+
+      for (int i = 0; i < num_read; i++)
+      {
+         struct ioEntry *entry = &entries[i];
+         int num_read;
+         num_read = aio_return(entry->read_aiocb);
+         entry->readOff += num_read;
+         entry->write_aiocb->aio_offset = entry->writeOff;
+         entry->write_aiocb->aio_nbytes = num_read;
+         entry->write_aiocb->aio_lio_opcode = LIO_WRITE;
+         entry->writeStatus = EINPROGRESS;
+         num_write++;
+      }
+
+      CHECK_ERROR(lio_listio(LIO_WAIT, write_aiocbs, num_write, NULL), "batched write");
+
+      num_write = 0;
+      num_read = 0;
+
+      for (int i = 0; i < MAX_FILES; i++)
+      {
+         struct ioEntry *entry = &entries[i];
+         entry->writeStatus = 0;
+         memset(entry->read_aiocb, 0, sizeof(struct aiocb));
+         memset(entry->write_aiocb, 0, sizeof(struct aiocb));
+
+         int ret = get_next_entry(executingQueue, queue, entry);
+
+         if (ret < 0)
+         {
+            break;
+         }
+
+         entry->reading = 1;
+         entry->read_aiocb->aio_buf = entry->buffer;
+         entry->read_aiocb->aio_fildes = entry->fdSrc;
+         entry->read_aiocb->aio_offset = entry->readOff;
+         entry->read_aiocb->aio_lio_opcode = LIO_READ;
+
+         entry->write_aiocb->aio_buf = entry->buffer;
+         entry->write_aiocb->aio_fildes = entry->fdDest;
+         entry->write_aiocb->aio_offset = entry->writeOff;
+         entry->readStatus = EINPROGRESS;
+
+         num_read++;
+      }
+   }
+}
+
 void print_usage()
 {
    printf("Usage: cp_aio_rec SOURCE DEST [OPTION]\n");
@@ -525,6 +652,7 @@ void print_usage()
    printf("-h\t\tTo bring up help menu\n");
    printf("-f\t\tenables use of fallocate\n");
    printf("-i\t\tAllows mutiple concurrent operations on a single file\n");
+   printf("-b\t\tBatches Requests (automatically enables -i)\n");
    printf("-d\t\tDirectly addresses storage device, no-buffering (all file size must multiple of 4096)\n");
    printf("-bs [int]\tSet size of buffer in Kb (default is 128kb)\n");
    printf("-qd [int]\tSet depth of Queue (Default is 64)\n");
@@ -649,7 +777,18 @@ int main(int argc, char **argv)
    iolist->head = NULL;
    iolist->tail = NULL;
 
-   if (i_opt)
+   struct aioinit init;
+
+   init.aio_threads = MAX_FILES + 1;
+   init.aio_num = MAX_FILES;
+   init.aio_idle_time = 1;
+
+   aio_init(&init);
+   
+   if(b_opt){
+      copy_batch_rec(queue, iolist);
+   }
+   else if (i_opt)
    {
       copy_inter_rec(queue, iolist);
    }

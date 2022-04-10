@@ -1,4 +1,14 @@
-#define _GNU_SOURCE 
+/**
+ * @file copy_async_rec.c
+ * @author Nalin Mahajan, Vineeth Bandi
+ * @brief This file contains the code for recursive copy on linux using the aio library.
+ * @version 0.1
+ * @date 2022-04-10
+ *
+ * @copyright Copyright (c) 2022
+ *
+ */
+#define _GNU_SOURCE
 
 #include <fcntl.h>
 #include <stdlib.h>
@@ -30,23 +40,6 @@ int i_opt = 0;
 int b_opt = 0;
 int writeFlags = O_WRONLY | O_CREAT;
 int readFlags = O_RDONLY;
-/* On delivery of SIGQUIT, we attempt to
-   cancel all outstanding I/O requests */
-
-static void /* Handler for SIGQUIT */
-quitHandler(int sig)
-{
-   gotSIGQUIT = 1;
-}
-
-void install_sigquit_signal_handler()
-{
-   struct sigaction sa;
-   sa.sa_flags = SA_RESTART;
-   sigemptyset(&sa.sa_mask);
-   sa.sa_handler = quitHandler;
-   CHECK_ERROR(sigaction(SIGQUIT, &sa, NULL), "Installing SiqQuit Handler");
-}
 
 // given a filename with path ../src/.../name will convert to ../dest/../name
 void get_dest(char *src_name, char *dest_name)
@@ -61,7 +54,7 @@ void getNextFile(struct list *queue, char *src_file, char *dest_file)
    // perform bfs
    while (1)
    {
-      // printf("%d\n",queue->size);
+      // if empty return null
       if (queue->size == 0)
       {
          CHECK_ERROR(memset(dest_file, 0, PATH_MAX), "null dest");
@@ -93,31 +86,36 @@ void getNextFile(struct list *queue, char *src_file, char *dest_file)
             enq_node(queue, (void *)file_name);
          }
          closedir(dir);
+         free(name);
       }
       else
       {
          strcpy(src_file, name);
          get_dest(src_file, dest_file);
+         free(name);
          break;
       }
    }
 }
 
+// normal recursive copy with only file per operation
 void copy_rec(struct list *queue, struct list *iolist)
 {
    // dequeue items and add them to list
    // loop and add items + fallocate + run
    char src_name[PATH_MAX];
    char dest_name[PATH_MAX];
+   // set up entries
    for (int i = 0; i < MAX_FILES; i++)
    {
-
+      // gather next file
       getNextFile(queue, src_name, dest_name);
       if (dest_name[0] == '\0')
       {
          break;
       }
 
+      // allocate structures
       struct ioEntry *entry = malloc(sizeof(struct ioEntry));
       CHECK_NULL(entry, "Allocating ioEntry");
 
@@ -135,6 +133,7 @@ void copy_rec(struct list *queue, struct list *iolist)
       int fd_dest = open(dest_name, writeFlags, S_IRWXU | S_IRWXO | S_IRWXG);
       CHECK_ERROR(fd_dest, "Opening dest file");
 
+      // if fallocating
       if (f_opt)
       {
          struct stat file_stat;
@@ -143,6 +142,7 @@ void copy_rec(struct list *queue, struct list *iolist)
          CHECK_ERROR(fallocate(fd_dest, 0, 0, file_size), "fallocate file");
       }
 
+      // setup entry fields
       entry->reading = 1;
       entry->fdSrc = fd_src;
       entry->fdDest = fd_dest;
@@ -152,6 +152,7 @@ void copy_rec(struct list *queue, struct list *iolist)
       entry->read_aiocb = read_aiocb;
       entry->write_aiocb = write_aiocb;
 
+      // set up aiocb fields
       memset(read_aiocb, 0, sizeof(struct aiocb));
       memset(write_aiocb, 0, sizeof(struct aiocb));
 
@@ -169,6 +170,7 @@ void copy_rec(struct list *queue, struct list *iolist)
 
    int openReq = 0;
 
+   // start all the initial reads
    struct node *cur = iolist->head;
    for (int idx = 0; idx < iolist->size; idx++)
    {
@@ -179,32 +181,35 @@ void copy_rec(struct list *queue, struct list *iolist)
       cur = cur->next;
    }
 
-   // then start while loop
+   // then start collecting operations and starting new ones if finished
    cur = iolist->head;
    while (openReq > 0)
    {
       if (cur == NULL)
          break;
       struct ioEntry *entry = (struct ioEntry *)cur->data;
+      // read entry
       if (entry->readStatus == EINPROGRESS)
       {
          entry->readStatus = aio_error(entry->read_aiocb);
          switch (entry->readStatus)
          {
+            // if finished reading
          case 0:
             int num_read;
             num_read = aio_return(entry->read_aiocb);
+            // if no more file left
             if (num_read == 0)
             {
                CHECK_ERROR(close(entry->fdSrc), "closing src");
                CHECK_ERROR(close(entry->fdDest), "closing dest");
-               // need to open next file and replace values in entry (and start execution)
 
+               // gather next file
                getNextFile(queue, src_name, dest_name);
 
+               // if empty then remove and decrement
                if (dest_name[0] == '\0')
                {
-                  // if empty then decrement and remove from openReq
                   struct node *temp = cur->prev;
                   remove_node(iolist, cur);
                   cur = temp;
@@ -213,6 +218,7 @@ void copy_rec(struct list *queue, struct list *iolist)
                }
                else
                {
+                  // open next file and start operation
                   int fd_src = open(src_name, readFlags);
                   CHECK_ERROR(fd_src, "Opening src file");
                   int fd_dest = open(dest_name, writeFlags, S_IRWXU | S_IRWXO | S_IRWXG);
@@ -250,6 +256,7 @@ void copy_rec(struct list *queue, struct list *iolist)
             }
             else
             {
+               // file still left to write execute next write
                entry->readOff += num_read;
                entry->write_aiocb->aio_offset = entry->writeOff;
                entry->write_aiocb->aio_nbytes = num_read;
@@ -265,13 +272,14 @@ void copy_rec(struct list *queue, struct list *iolist)
             break;
          }
       }
+      // write operation
       else if (entry->writeStatus == EINPROGRESS)
       {
          entry->writeStatus = aio_error(entry->write_aiocb);
          switch (entry->writeStatus)
          {
          case 0:
-            // write(STDOUT_FILENO, "I/O completion signal received\n", 31);
+            // start next read
             int num_write = aio_return(entry->write_aiocb);
 
             entry->writeOff += num_write;
@@ -293,15 +301,19 @@ void copy_rec(struct list *queue, struct list *iolist)
    }
 }
 
+// used to add new file to list of executing files (used for interleaving writes/reads)
+// returns -1 on no more files
 int enq_new_file(struct list *executingQueue, struct list *fileQueue)
 {
    char src_path[PATH_MAX + 1];
    char dest_path[PATH_MAX + 1];
+   // if no more files return -1
    getNextFile(fileQueue, src_path, dest_path);
    if (dest_path[0] == '\0')
    {
       return -1;
    }
+   // set new file entry and add to queue
    struct file_entry *new_file;
    new_file = (struct file_entry *)malloc(sizeof(struct file_entry));
    CHECK_NULL(new_file, "allocating file entry");
@@ -328,11 +340,12 @@ int enq_new_file(struct list *executingQueue, struct list *fileQueue)
    enq_node(executingQueue, new_file);
    return 0;
 }
-
+// gets next pair of r/w
+// return -1 if empty
 int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct ioEntry *entry)
 {
    int ret;
-   // get next file to consume
+   // if empty get next file
    if (executingQueue->size == 0)
    {
       ret = enq_new_file(executingQueue, fileQueue);
@@ -340,10 +353,10 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
          return ret;
    }
 
-   // get next op pair from file
+   // get cur file
    struct file_entry *head = (struct file_entry *)executingQueue->head->data;
 
-   // if file consumed
+   // if file consumed free and get next file
    if (head->remainingBytes <= 0)
    {
       free(deq_node(executingQueue));
@@ -353,13 +366,14 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    }
 
    head = (struct file_entry *)executingQueue->head->data;
-
+   // set entry values
    entry->fdSrc = head->infd;
    entry->fdDest = head->outfd;
    entry->readOff = head->off;
    entry->writeOff = head->off;
    entry->read_aiocb->aio_nbytes = head->remainingBytes > BUFF_SIZE ? BUFF_SIZE : head->remainingBytes;
    entry->write_aiocb->aio_nbytes = entry->read_aiocb->aio_nbytes;
+   // update file fields
    head->off += entry->read_aiocb->aio_nbytes;
    head->remainingBytes -= entry->read_aiocb->aio_nbytes;
 
@@ -424,7 +438,7 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
    }
 
    int openReq = 0;
-
+   // execute reads
    struct node *cur = iolist->head;
    for (int idx = 0; idx < iolist->size; idx++)
    {
@@ -435,19 +449,21 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
       cur = cur->next;
    }
 
-   // then start while loop
+   // reap operations and start new ones
    cur = iolist->head;
    while (openReq > 0)
    {
       if (cur == NULL)
          break;
       struct ioEntry *entry = (struct ioEntry *)cur->data;
+      // read operations
       if (entry->readStatus == EINPROGRESS)
       {
          entry->readStatus = aio_error(entry->read_aiocb);
          switch (entry->readStatus)
          {
          case 0:
+            // start write operation if successful
             int num_read;
             num_read = aio_return(entry->read_aiocb);
             entry->readOff += num_read;
@@ -464,17 +480,21 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
             break;
          }
       }
+      // write operation
       else if (entry->writeStatus == EINPROGRESS)
       {
          entry->writeStatus = aio_error(entry->write_aiocb);
          switch (entry->writeStatus)
          {
          case 0:
+            // if successfule get next pair of r/w and start executing
             CHECK_ERROR(aio_return(entry->read_aiocb), "write return");
             memset(entry->read_aiocb, 0, sizeof(struct aiocb));
             memset(entry->write_aiocb, 0, sizeof(struct aiocb));
 
             int ret = get_next_entry(executingQueue, queue, entry);
+
+            // if no more pairs then free and dec
             if (ret < 0)
             {
                struct node *temp = cur->prev;
@@ -487,6 +507,7 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
                openReq--;
                break;
             }
+            // set fields for new r/w pair
             entry->reading = 1;
             entry->read_aiocb->aio_buf = entry->buffer;
             entry->read_aiocb->aio_fildes = entry->fdSrc;
@@ -510,9 +531,10 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
    }
 }
 
+// copy using multiple writes per file in batched manner
 void copy_batch_rec(struct list *queue, struct list *iolist)
 {
-
+   // set up executing queue
    struct list *executingQueue;
    executingQueue = (struct list *)malloc(sizeof(struct list));
    CHECK_NULL(executingQueue, "allocating queue for files in use");
@@ -523,8 +545,9 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
    int num_read = 0;
    int num_write = 0;
 
-   struct aiocb* read_aiocbs[MAX_FILES];
-   struct aiocb* write_aiocbs[MAX_FILES];
+   // generate list of aiocbs and allocate entries
+   struct aiocb *read_aiocbs[MAX_FILES];
+   struct aiocb *write_aiocbs[MAX_FILES];
    struct ioEntry *entries = mmap(NULL, sizeof(struct ioEntry) * MAX_FILES, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
    CHECK_NULL(entries, "Allocating entries");
    // dequeue items and add them to list
@@ -543,15 +566,19 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
       struct aiocb *write_aiocb = malloc(sizeof(struct aiocb));
       CHECK_NULL(write_aiocb, "allocation read aiocb");
 
+      // gather read/write aiocb
       entry->read_aiocb = read_aiocb;
       entry->write_aiocb = write_aiocb;
 
+      // set pointer to list to aiocb
       read_aiocbs[i] = entry->read_aiocb;
       write_aiocbs[i] = entry->write_aiocb;
 
+      // st fields of aiocb
       memset(read_aiocb, 0, sizeof(struct aiocb));
       memset(write_aiocb, 0, sizeof(struct aiocb));
 
+      // if no more r/w free and break
       int ret = get_next_entry(executingQueue, queue, entry);
       if (ret < 0)
       {
@@ -562,16 +589,17 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
          break;
       }
 
+      // set entry fields
       entry->reading = 1;
       entry->buffer = buffer;
 
+      // set read aiocb fields
       read_aiocb->aio_buf = entry->buffer;
       read_aiocb->aio_fildes = entry->fdSrc;
       read_aiocb->aio_offset = entry->readOff;
       read_aiocb->aio_lio_opcode = LIO_READ;
 
-      num_read++;
-
+      // set write aiocb fields
       write_aiocb->aio_buf = entry->buffer;
       write_aiocb->aio_fildes = entry->fdDest;
       write_aiocb->aio_offset = entry->writeOff;
@@ -579,15 +607,18 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
 
       entry->readStatus = EINPROGRESS;
 
+      num_read++;
+
       enq_node(iolist, entry);
    }
 
-   // then start while loop
-
+   // then reap entries and start new ones
    while (num_read > 0 || num_write > 0)
    {
+      // execute read batch and wait till completion
       CHECK_ERROR(lio_listio(LIO_WAIT, read_aiocbs, num_read, NULL), "batched read");
 
+      // loop over read batch and add writes
       for (int i = 0; i < num_read; i++)
       {
          struct ioEntry *entry = &entries[i];
@@ -601,11 +632,14 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
          num_write++;
       }
 
+      // start and wait for write batch
       CHECK_ERROR(lio_listio(LIO_WAIT, write_aiocbs, num_write, NULL), "batched write");
 
+      // reset count
       num_write = 0;
       num_read = 0;
 
+      // gather next r/w pairs and start read batch
       for (int i = 0; i < MAX_FILES; i++)
       {
          struct ioEntry *entry = &entries[i];
@@ -615,6 +649,7 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
 
          int ret = get_next_entry(executingQueue, queue, entry);
 
+         // if no more r/w pairs left break
          if (ret < 0)
          {
             break;
@@ -664,6 +699,7 @@ int main(int argc, char **argv)
       print_usage();
    }
 
+   // gather and set flags
    for (int i = 3; i < argc; i++)
    {
       if (strcmp(argv[i], "-f") == 0)
@@ -734,6 +770,7 @@ int main(int argc, char **argv)
    DIR *src_dir;
    DIR *dest_dir;
 
+   // open and check src/dest dir
    src_dir = opendir(src);
    CHECK_NULL(src_dir, "Opening Src dir");
 
@@ -757,27 +794,29 @@ int main(int argc, char **argv)
    queue->head = NULL;
    queue->tail = NULL;
 
-   // push onto queue
-
-   enq_node(queue, src);
+   // copy src into queue
+   char *src_queue_data = malloc(PATH_MAX + 1);
+   CHECK_NULL(src_queue_data, "allocating copy addr for src");
+   CHECK_NULL(strcpy(src_queue_data, src), "copying src");
+   enq_node(queue, src_queue_data);
 
    // working set list
-
    struct list *iolist = malloc(sizeof(struct list));
    CHECK_NULL(iolist, "Allocating iolist");
    iolist->size = 0;
    iolist->head = NULL;
    iolist->tail = NULL;
 
+   // initialize aio, by giving it parameters ahead of time of max file operations and number of threads
    struct aioinit init;
-
    init.aio_threads = MAX_FILES + 1;
    init.aio_num = MAX_FILES;
    init.aio_idle_time = 1;
-
    aio_init(&init);
-   
-   if(b_opt){
+
+   // execute requested copy operations
+   if (b_opt)
+   {
       copy_batch_rec(queue, iolist);
    }
    else if (i_opt)

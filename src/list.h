@@ -1,26 +1,34 @@
+/**
+ * @file list.h
+ * @author Nalin Mahajan, Vineeth Bandi
+ * @brief A crude queue implementation
+ * @version 0.1
+ * @date 2022-04-10
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
 #include <stdio.h>
 #include <stdlib.h>
-/*
-*  Create data structures for the recursion and management of files
-*  Linked List For current I/O events
-*  Queue for next Files/Directories
-*/
 
 struct node;
 struct list;
 
+// simple doubly linked node
 struct node{
    void* data;
    struct node* next;
    struct node* prev;
 };
 
+// doubly linked list meta data block
 struct list{
    int size;
    struct node* head;
    struct node* tail;
 };
 
+// enques new node to end of list, with data pointer
 void enq_node(struct list* l, void * data){
    struct node* new_node;
    new_node =  (struct node *)malloc(sizeof (struct node));
@@ -51,6 +59,7 @@ void enq_node(struct list* l, void * data){
    l->size += 1;
 }
 
+// deques node at front of the list (null if none) and returns the data pointer
 void* deq_node(struct list* l){
    if(l->size == 0)
       return NULL;
@@ -70,6 +79,8 @@ void* deq_node(struct list* l){
    return data;  
 }
 
+// removes a node at desired node (return data pointer) 
+// WARNING: list does not check if node is in list can cause undefined behavior
 void* remove_node(struct list* l, struct node* n){
    if(l->size == 0)
       return NULL;
@@ -92,6 +103,7 @@ void* remove_node(struct list* l, struct node* n){
 
 }
 
+// swaps data at node
 void* replace_node(struct node* n, void * data){
    void* old = n->data;
    n->data = data;

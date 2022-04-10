@@ -1,3 +1,14 @@
+/**
+ * @file copy_uring_rec.c
+ * @author Nalin Mahajan Vineeth Bandi
+ * @brief This file contains the code for recursive copy operations on linux using io_uring.
+ * @version 0.1
+ * @date 2022-04-10
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
+
 #define _GNU_SOURCE 
 
 #include <stdio.h>
@@ -18,23 +29,23 @@
 #include "list.h"
 #include "logging.h"
 
-off_t QD = 64;
-off_t BS = (128 * 1024);
+off_t QD = 64;                            // Max number of concurrent ops
+off_t BS = (128 * 1024);                  // size of buffer
 
-int f_opt = 0;
-int rb_opt = 0;
-int batch_opt = 0;
-int inter_opt = 0;
+int f_opt = 0;                            // fallocate option
+int rb_opt = 0;                           // registered buffers option
+int batch_opt = 0;                        // batching option
+int inter_opt = 0;                        // inter-file operations option
 
-int read_flags = O_RDONLY;
-int write_flags = O_CREAT | O_WRONLY;
+int read_flags = O_RDONLY;                // flags for reading
+int write_flags = O_CREAT | O_WRONLY;     // flags for writing
 
-char *src;
-char *dest;
-int src_name_size;
+char *src;                                // src base path
+char *dest;                               // dest base path
+int src_name_size;                        // size of src name
 
-struct iovec *iovecs;
-char *buffers;
+struct iovec *iovecs;                     // pointer to list iovecs
+char *buffers;                            // pointer to list of buffers
 
 // given a filename with path ../src/.../name will convert to ../dest/../name
 void get_dest(char *src_name, char *dest_name)
@@ -49,12 +60,13 @@ void getNextFile(struct list *queue, char *src_file, char *dest_file)
    // perform bfs
    while (1)
    {
-      // printf("%d\n",queue->size);
+      // if empty return empty dest
       if (queue->size == 0)
       {
          CHECK_ERROR(strcpy(dest_file, "\0"), "null dest");
          return;
       }
+
       char *name = (char *)deq_node(queue);
 
       struct stat path_stat;
@@ -81,24 +93,32 @@ void getNextFile(struct list *queue, char *src_file, char *dest_file)
             enq_node(queue, (void *)file_name);
          }
          closedir(dir);
+         free(name);
       }
+      // otherwise copy name to src and generate dest name and return
       else
       {
          strcpy(src_file, name);
          get_dest(src_file, dest_file);
+         free(name);
          break;
       }
    }
 }
 
+/*
+   Generates a linked read then write pair operation and inserts into the SQ
+*/
 void add_rw_pair(struct io_uring *ring, struct ioUringEntry *entry)
 {
-   // add to ring
+   // get aqe
    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
    CHECK_NULL(sqe, "getting sqe");
 
-   sqe->flags |= IOSQE_IO_LINK;
+   // set link flag for write operation
+   io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
 
+   // prep read to sq
    if (rb_opt)
    {
       io_uring_prep_read_fixed(sqe, entry->fdSrc, entry->buffer, entry->iov->iov_len, entry->readOff, entry->buff_index);
@@ -108,11 +128,14 @@ void add_rw_pair(struct io_uring *ring, struct ioUringEntry *entry)
       io_uring_prep_readv(sqe, entry->fdSrc, entry->iov, 1, entry->readOff);
    }
 
+   // set data to the entry
    io_uring_sqe_set_data(sqe, entry);
 
+   // get next sqe (will have been linked to occur after the above op)
    sqe = io_uring_get_sqe(ring);
    CHECK_NULL(sqe, "getting sqe");
 
+   // prep write to sq
    if (rb_opt)
    {
       io_uring_prep_write_fixed(sqe, entry->fdDest, entry->buffer, entry->iov->iov_len, entry->writeOff, entry->buff_index);
@@ -125,11 +148,13 @@ void add_rw_pair(struct io_uring *ring, struct ioUringEntry *entry)
    io_uring_sqe_set_data(sqe, entry);
 }
 
+// normal rec copy with read/write entry per file
 void rec_copy(struct list *queue, struct io_uring *ring)
 {
    long in_flight = 0;
    char src_path[PATH_MAX + 1];
    char dest_path[PATH_MAX + 1];
+   // generate intial sq ring
    for (int i = 0; i < QD; i += 2)
    {
 
@@ -140,14 +165,17 @@ void rec_copy(struct list *queue, struct io_uring *ring)
          break;
       }
 
+      // generate entry
       struct ioUringEntry *entry = malloc(sizeof(struct ioUringEntry));
       CHECK_NULL(entry, "allocating an entry");
 
+      // open file
       int infd = open(src_path, read_flags);
       CHECK_ERROR(infd, "opening read file");
       int outfd = open(dest_path, write_flags, S_IRWXU | S_IRWXO | S_IRWXG);
       CHECK_ERROR(outfd, "opening write file");
 
+      // get file size for fallocate
       struct stat file_stat;
       CHECK_ERROR(fstat(infd, &file_stat), "stat");
       off_t file_size = file_stat.st_size;
@@ -157,6 +185,7 @@ void rec_copy(struct list *queue, struct io_uring *ring)
          CHECK_ERROR(fallocate(outfd, 0, 0, file_size), "fallocate file");
       }
 
+      // set file size and entry fields
       entry->file_size = file_size;
 
       entry->fdSrc = infd;
@@ -167,20 +196,25 @@ void rec_copy(struct list *queue, struct io_uring *ring)
       entry->writeOff = 0;
 
       entry->iov = &iovecs[i / 2];
+
+      // calculate then length of first read/write
       entry->iov->iov_len = file_size > BS ? BS : file_size;
-      // entry->iov->iov_len = BS;
       entry->buffer = entry->iov->iov_base;
       entry->buff_index = i / 2;
 
+      // add pair
       add_rw_pair(ring, entry);
 
       in_flight += 2;
    }
 
+   // submit ring starting read/write execution
    CHECK_ERROR(io_uring_submit(ring), "submitting ring");
 
+   // reap the entries and start new ones
    while (in_flight > 0)
    {
+      // gather cqe for previous sqe
       struct io_uring_cqe *cqe;
       CHECK_ERROR(io_uring_wait_cqe(ring, &cqe), "waiting on cqe");
 
@@ -192,6 +226,7 @@ void rec_copy(struct list *queue, struct io_uring *ring)
 
       CHECK_NULL(entry, "getting entry from cqe");
 
+      // check res code
       int res;
       res = cqe->res;
       if (res < 0)
@@ -202,21 +237,22 @@ void rec_copy(struct list *queue, struct io_uring *ring)
 
       in_flight--;
       entry->op_count++;
+      // if read has finished increment readoff
       if (entry->op_count == 1)
       {
          entry->readOff += res;
       }
+      // if read/write finished
       else if (entry->op_count == 2)
       {
 
-         // remaining read/write
+         // remaining read/write iterate
          if (entry->readOff < entry->file_size)
          {
             entry->writeOff += res;
             entry->op_count = 0;
             off_t length = entry->file_size - entry->readOff;
             entry->iov->iov_len = length > BS ? BS : length;
-            // entry->iov->iov_len = BS;
             add_rw_pair(ring, entry);
             CHECK_ERROR(io_uring_submit(ring), "submitting ring");
             in_flight += 2;
@@ -263,7 +299,6 @@ void rec_copy(struct list *queue, struct io_uring *ring)
                add_rw_pair(ring, entry);
                CHECK_ERROR(io_uring_submit(ring), "submitting ring");
                in_flight += 2;
-               // install new file r/w pair
             }
          }
       }
@@ -272,10 +307,13 @@ void rec_copy(struct list *queue, struct io_uring *ring)
    }
 }
 
+// used for inter operations (intermediate queue of files that are being operated on)
+// returns -1 in case where no such file
 int enq_new_file(struct list *executingQueue, struct list *fileQueue)
 {
    char src_path[PATH_MAX + 1];
    char dest_path[PATH_MAX + 1];
+   // gets next file from file queue
    getNextFile(fileQueue, src_path, dest_path);
    if (dest_path[0] == '\0')
    {
@@ -299,6 +337,7 @@ int enq_new_file(struct list *executingQueue, struct list *fileQueue)
       CHECK_ERROR(fallocate(outfd, 0, 0, file_size), "fallocate file");
    }
 
+   // set the needed fields and enq the new file to executing queue
    new_file->off = 0;
    new_file->infd = infd;
    new_file->outfd = outfd;
@@ -308,10 +347,11 @@ int enq_new_file(struct list *executingQueue, struct list *fileQueue)
    return 0;
 }
 
+// gather next r/w pair for execution, returns -1 if now such file
 int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct ioUringEntry *entry)
 {
    int ret;
-   // get next file to consume
+   // if executing files is empty gather new file
    if (executingQueue->size == 0)
    {
       ret = enq_new_file(executingQueue, fileQueue);
@@ -319,10 +359,10 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
          return ret;
    }
 
-   // get next op pair from file
+   // get first file in queue
    struct file_entry *head = (struct file_entry *)executingQueue->head->data;
 
-   // if file consumed
+   // if file consumed free and enq new file
    if (head->remainingBytes <= 0)
    {
       free(deq_node(executingQueue));
@@ -331,6 +371,7 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
          return ret;
    }
 
+   // set entry data fields with data based on current file entry
    head = (struct file_entry *)executingQueue->head->data;
 
    entry->fdSrc = head->infd;
@@ -339,6 +380,7 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    entry->writeOff = head->off;
    entry->iov->iov_len = head->remainingBytes > BS ? BS : head->remainingBytes;
 
+   // update entry to reflect consumption
    head->off += entry->iov->iov_len;
    head->remainingBytes -= entry->iov->iov_len;
 
@@ -363,8 +405,10 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
    int in_flight = 0;
 
    int ret;
+   // set up initial operations
    for (int i = 0; i < QD; i += 2)
    {
+      // set entry struct fields
       struct ioUringEntry *entry;
       entry = (struct ioUringEntry *)malloc(sizeof(struct ioUringEntry));
       entry->iov = &iovecs[i / 2];
@@ -372,17 +416,21 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
       entry->buffer = entry->iov->iov_base;
       entry->op_count = 0;
       ret = get_next_entry(executingQueue, queue, entry);
+      // if no more entries then done
       if (ret < 0)
       {
          free(entry);
          break;
       }
+      // other wise add pair
       add_rw_pair(ring, entry);
       in_flight += 2;
    }
 
+   // submit the operations
    CHECK_ERROR(io_uring_submit(ring), "submitting ring");
 
+   // reap cqe and start new operations
    while (in_flight > 0)
    {
       struct io_uring_cqe *cqe;
@@ -402,6 +450,7 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
 
       in_flight--;
       entry->op_count++;
+      // when done get next entry and restart otherwise free
       switch (entry->op_count)
       {
       case 2:
@@ -426,6 +475,7 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
    }
 }
 
+// copies used inter-file operations and batching
 void rec_copy_batch(struct list *queue, struct io_uring *ring)
 {
    // create executingQueue
@@ -437,7 +487,7 @@ void rec_copy_batch(struct list *queue, struct io_uring *ring)
    executingQueue->size = 0;
 
    int in_flight = 0;
-
+   // set up initial operations
    int ret;
    for (int i = 0; i < QD; i += 2)
    {
@@ -459,9 +509,10 @@ void rec_copy_batch(struct list *queue, struct io_uring *ring)
 
    while (in_flight > 0)
    {
+      // submits all operations and waits till all complete
       struct io_uring_cqe *cqe;
       int num = io_uring_submit_and_wait(ring, in_flight);
-
+      // loop through operations and reap
       for (int i = 0; i < num; i++)
       {
          ret = io_uring_peek_cqe(ring, &cqe);
@@ -481,6 +532,7 @@ void rec_copy_batch(struct list *queue, struct io_uring *ring)
 
          in_flight--;
          entry->op_count++;
+         // initialize next entry or free
          switch (entry->op_count)
          {
          case 2:
@@ -537,7 +589,7 @@ int main(int argc, char **argv)
       print_usage();
    }
 
-   // read options
+   // set options
    for (int i = 3; i < argc; i++)
    {
       char *s = argv[i];
@@ -635,8 +687,11 @@ int main(int argc, char **argv)
    queue->head = NULL;
    queue->tail = NULL;
 
-   // push onto queue
-   enq_node(queue, src);
+   // copy src into queue
+   char*src_queue_data = malloc(PATH_MAX +1);
+   CHECK_NULL(src_queue_data, "allocating copy addr for src");
+   CHECK_NULL(strcpy(src_queue_data, src), "copying src");
+   enq_node(queue, src_queue_data);
 
    // setup io_uring
    struct io_uring *ring;
@@ -645,6 +700,8 @@ int main(int argc, char **argv)
    CHECK_NULL(ring, "allocating ring");
 
    CHECK_ERROR(io_uring_queue_init(QD, ring, 0), "init ring");
+
+   // allocate buffers
 
    iovecs = calloc(QD / 2, (sizeof(struct iovec)));
    CHECK_NULL(iovecs, "allocating iovecs");
@@ -664,6 +721,7 @@ int main(int argc, char **argv)
       io_uring_register_buffers(ring, iovecs, QD / 2);
    }
 
+   // run requested operation
    if(batch_opt){
       rec_copy_batch(queue, ring);
    }

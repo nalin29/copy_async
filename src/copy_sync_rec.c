@@ -1,3 +1,13 @@
+/**
+ * @file copy_sync_rec.c
+ * @author Nalin Mahajan, Vineeth Bandi
+ * @brief A stripped down version of copy -r that can be used as comparison.
+ * @version 0.1
+ * @date 2022-04-11
+ * 
+ * @copyright Copyright (c) 2022
+ * 
+ */
 #define _GNU_SOURCE
 
 #include <fcntl.h>
@@ -5,7 +15,6 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <errno.h>
-#include <aio.h>
 #include <signal.h>
 #include <limits.h>
 #include <string.h>
@@ -82,22 +91,25 @@ void getNextFile(struct list *queue, char *src_file, char *dest_file)
       }
    }
 }
-
+// a stripped down versio of what cp -r does
 void copy_sync(struct list *queue)
 {
    char src_path[PATH_MAX + 1];
    char dest_path[PATH_MAX + 1];
    while (1)
    {
+      // gather file to open
       getNextFile(queue, src_path, dest_path);
       if (dest_path[0] == '\0')
       {
          break;
       }
 
+      // open file
       int infd = openat(AT_FDCWD, src_path, readFlags);
       int outfd = openat(AT_FDCWD, dest_path, writeFlags, 0644);
 
+      // stat file and fallocate if option enabled
       struct stat file_stat;
       CHECK_ERROR(fstat(infd, &file_stat), "stat");
 
@@ -109,14 +121,16 @@ void copy_sync(struct list *queue)
          CHECK_ERROR(fallocate(outfd, 0, 0, file_size), "fallocate file");
       }
 
-      while (1){
+      // keep copying till no more left or erro
+      while (1)
+      {
          ssize_t ret;
          ret = copy_file_range(infd, NULL, outfd, NULL, 9223372035781033984, 0);
          CHECK_ERROR(ret, "copy file range");
-         if(ret == 0)
+         if (ret == 0)
             break;
       }
-
+      // set permissions
       CHECK_ERROR(fchmod(outfd, file_stat.st_mode), "set permissions");
       close(infd);
       close(outfd);

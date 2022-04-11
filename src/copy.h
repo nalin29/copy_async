@@ -33,7 +33,7 @@ struct file_entry
 // used for aio rec, contains necessary data
 struct ioEntry
 {
-   int reading;               // if entry is currently readin
+   int reading;               // if entry is currently reading
    int fdSrc;                 // fd of src file
    int fdDest;                // fd of dest file
    int readOff;               // offset for reading
@@ -44,7 +44,7 @@ struct ioEntry
    char *buffer;              // pointer to read/write buffer
    int readStatus;            // status of read operation
    int writeStatus;           // status of write operation
-   struct file_entry* fe;
+   struct file_entry* fe;     // file entry for op
    struct aiocb *read_aiocb;  // pointer to aio cb for reads
    struct aiocb *write_aiocb; // pointer to aio cb for writes
 };
@@ -62,7 +62,7 @@ struct ioUringEntry
    int buff_index;            // index of buffer (used for registering buffers)
    off_t file_size;           // size of file total
    int op_count;              // number of operations used for (inter-file operations)
-   struct file_entry* fe;
+   struct file_entry* fe;     // file entry for op
    struct iovec* iov;         // io vector used for non registered operations
 };
 

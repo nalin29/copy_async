@@ -32,13 +32,16 @@ copy_uring_inter_file.out: $(SRC_DIR)/copy_uring_inter_file.c $(HEAD)
 	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_inter_file.c -o copy_uring_inter_file.out $(LIBS)
 
 copy_uring_rec.out: $(SRC_DIR)/copy_uring_rec.c $(HEAD)
-	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_rec.c -o copy_uring_rec.out $(LIBS)		
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_uring_rec.c -o copy_uring_rec.out $(LIBS)
+
+copy_sync_rec.out: $(SRC_DIR)/copy_sync_rec.c $(HEAD)		
+	$(CC) -I$(SRC_DIR) $(CFLAGS) $(SRC_DIR)/copy_sync_rec.c -o copy_sync_rec.out $(LIBS)
 
 clean:
 	rm -rf *.out *.o
 
 release: CFLAGS += -Ofast
-release: copy_aio_rec.out copy_uring_rec.out
+release: copy_aio_rec.out copy_uring_rec.out copy_sync_rec.out
 
 debug: CFLAGS += -g 
 debug:all

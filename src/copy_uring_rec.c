@@ -260,6 +260,9 @@ void rec_copy(struct list *queue, struct io_uring *ring)
          // get next file
          else
          {
+            struct stat file_stat;
+            CHECK_ERROR(fstat(entry->fdSrc, &file_stat), "stat");
+            CHECK_ERROR(fchmod(entry->fdDest, file_stat.st_mode), "set permissions");
             close(entry->fdSrc);
             close(entry->fdDest);
 
@@ -464,7 +467,11 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
          // check in entry with fentry
          entry->fe->ops--;
          // if all ops checked in and no more future ops free file_entry and close files
-         if(entry->fe->ops == 0 && entry->fe->remainingBytes == 0){
+         if (entry->fe->ops == 0 && entry->fe->remainingBytes == 0)
+         {
+            struct stat file_stat;
+            CHECK_ERROR(fstat(entry->fdSrc, &file_stat), "stat");
+            CHECK_ERROR(fchmod(entry->fdDest, file_stat.st_mode), "set permissions");
             free(entry->fe);
             close(entry->fdDest);
             close(entry->fdSrc);
@@ -556,11 +563,14 @@ void rec_copy_batch(struct list *queue, struct io_uring *ring)
          switch (entry->op_count)
          {
          case 2:
-            // check in op with fe 
+            // check in op with fe
             entry->fe->ops--;
             // if all ops checked in and no more future ops free fe and close files
             if (entry->fe->ops == 0 && entry->fe->remainingBytes == 0)
             {
+               struct stat file_stat;
+               CHECK_ERROR(fstat(entry->fdSrc, &file_stat), "stat");
+               CHECK_ERROR(fchmod(entry->fdDest, file_stat.st_mode), "set permissions");
                free(entry->fe);
                close(entry->fdDest);
                close(entry->fdSrc);

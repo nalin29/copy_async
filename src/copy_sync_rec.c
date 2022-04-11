@@ -96,19 +96,28 @@ void copy_sync(struct list *queue)
       }
 
       int infd = openat(AT_FDCWD, src_path, readFlags);
-      int outfd = openat(AT_FDCWD, dest_path, writeFlags);
+      int outfd = openat(AT_FDCWD, dest_path, writeFlags, 0644);
+
+      struct stat file_stat;
+      CHECK_ERROR(fstat(infd, &file_stat), "stat");
 
       if (f_opt)
       {
-         struct stat file_stat;
-         CHECK_ERROR(fstat(infd, &file_stat), "stat");
+
          off_t file_size = file_stat.st_size;
 
          CHECK_ERROR(fallocate(outfd, 0, 0, file_size), "fallocate file");
       }
 
-      while (copy_file_range(infd, NULL, outfd, NULL, 9223372035781033984, 0) > 0)
-         ;
+      while (1){
+         ssize_t ret;
+         ret = copy_file_range(infd, NULL, outfd, NULL, 9223372035781033984, 0);
+         CHECK_ERROR(ret, "copy file range");
+         if(ret == 0)
+            break;
+      }
+
+      CHECK_ERROR(fchmod(outfd, file_stat.st_mode), "set permissions");
       close(infd);
       close(outfd);
    }
@@ -116,7 +125,7 @@ void copy_sync(struct list *queue)
 
 void print_usage()
 {
-   printf("Usage: cp_aio_rec SOURCE DEST [OPTION]\n");
+   printf("Usage: cp_sync_rec SOURCE DEST [OPTION]\n");
    printf("Recursivly copy source folder to new destination folder\n\n");
    printf("Optional Flags:\n");
    printf("-h\t\tTo bring up help menu\n");

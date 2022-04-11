@@ -201,6 +201,9 @@ void copy_rec(struct list *queue, struct list *iolist)
             // if no more file left
             if (num_read == 0)
             {
+               struct stat file_stat;
+               CHECK_ERROR(fstat(entry->fdSrc, &file_stat), "stat");
+               CHECK_ERROR(fchmod(entry->fdDest, file_stat.st_mode), "set permissions");
                CHECK_ERROR(close(entry->fdSrc), "closing src");
                CHECK_ERROR(close(entry->fdDest), "closing dest");
 
@@ -381,7 +384,8 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    head->remainingBytes -= entry->read_aiocb->aio_nbytes;
    head->ops += 1;
 
-   if(head->remainingBytes == 0){
+   if (head->remainingBytes == 0)
+   {
       entry->last = 1;
       deq_node(executingQueue);
    }
@@ -499,8 +503,12 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
             // check in op
             entry->fe->ops--;
             // if all ops checked in and no more future free and close files
-            if(entry->fe->ops == 0 && entry->fe->remainingBytes == 0){
+            if (entry->fe->ops == 0 && entry->fe->remainingBytes == 0)
+            {
                free(entry->fe);
+               struct stat file_stat;
+               CHECK_ERROR(fstat(entry->fdSrc, &file_stat), "stat");
+               CHECK_ERROR(fchmod(entry->fdDest, file_stat.st_mode), "set permissions");
                close(entry->fdSrc);
                close(entry->fdDest);
             }
@@ -663,8 +671,12 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
          // check in op with file
          entry->fe->ops--;
          // if all ops checked in and no more future free and close files
-         if(entry->fe->ops == 0 && entry->fe->remainingBytes == 0){
+         if (entry->fe->ops == 0 && entry->fe->remainingBytes == 0)
+         {
             free(entry->fe);
+            struct stat file_stat;
+            CHECK_ERROR(fstat(entry->fdSrc, &file_stat), "stat");
+            CHECK_ERROR(fchmod(entry->fdDest, file_stat.st_mode), "set permissions");
             close(entry->fdDest);
             close(entry->fdSrc);
          }

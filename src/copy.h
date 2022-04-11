@@ -20,6 +20,16 @@
 #include <liburing.h>
 #include <sys/ioctl.h>
 
+// contains data on file
+struct file_entry
+{
+   int infd;                  // the read file fd
+   int outfd;                 // the write file fd
+   off_t remainingBytes;      // remaining bytes to read/write
+   unsigned long ops;
+   off_t off;                 // current offset in file
+};
+
 // used for aio rec, contains necessary data
 struct ioEntry
 {
@@ -34,6 +44,7 @@ struct ioEntry
    char *buffer;              // pointer to read/write buffer
    int readStatus;            // status of read operation
    int writeStatus;           // status of write operation
+   struct file_entry* fe;
    struct aiocb *read_aiocb;  // pointer to aio cb for reads
    struct aiocb *write_aiocb; // pointer to aio cb for writes
 };
@@ -51,14 +62,8 @@ struct ioUringEntry
    int buff_index;            // index of buffer (used for registering buffers)
    off_t file_size;           // size of file total
    int op_count;              // number of operations used for (inter-file operations)
+   struct file_entry* fe;
    struct iovec* iov;         // io vector used for non registered operations
 };
 
-// contains data on file
-struct file_entry
-{
-   int infd;                  // the read file fd
-   int outfd;                 // the write file fd
-   off_t remainingBytes;      // remaining bytes to read/write
-   off_t off;                 // current offset in file
-};
+

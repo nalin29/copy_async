@@ -4,12 +4,12 @@
  * @brief This file contains the code for recursive copy operations on linux using io_uring.
  * @version 0.1
  * @date 2022-04-10
- * 
+ *
  * @copyright Copyright (c) 2022
- * 
+ *
  */
 
-#define _GNU_SOURCE 
+#define _GNU_SOURCE
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -29,23 +29,23 @@
 #include "list.h"
 #include "logging.h"
 
-off_t QD = 64;                            // Max number of concurrent ops
-off_t BS = (128 * 1024);                  // size of buffer
+off_t QD = 64;           // Max number of concurrent ops
+off_t BS = (128 * 1024); // size of buffer
 
-int f_opt = 0;                            // fallocate option
-int rb_opt = 0;                           // registered buffers option
-int batch_opt = 0;                        // batching option
-int inter_opt = 0;                        // inter-file operations option
+int f_opt = 0;     // fallocate option
+int rb_opt = 0;    // registered buffers option
+int batch_opt = 0; // batching option
+int inter_opt = 0; // inter-file operations option
 
-int read_flags = O_RDONLY;                // flags for reading
-int write_flags = O_CREAT | O_WRONLY;     // flags for writing
+int read_flags = O_RDONLY;            // flags for reading
+int write_flags = O_CREAT | O_WRONLY; // flags for writing
 
-char *src;                                // src base path
-char *dest;                               // dest base path
-int src_name_size;                        // size of src name
+char *src;         // src base path
+char *dest;        // dest base path
+int src_name_size; // size of src name
 
-struct iovec *iovecs;                     // pointer to list iovecs
-char *buffers;                            // pointer to list of buffers
+struct iovec *iovecs; // pointer to list iovecs
+char *buffers;        // pointer to list of buffers
 
 // given a filename with path ../src/.../name will convert to ../dest/../name
 void get_dest(char *src_name, char *dest_name)
@@ -342,6 +342,7 @@ int enq_new_file(struct list *executingQueue, struct list *fileQueue)
    new_file->infd = infd;
    new_file->outfd = outfd;
    new_file->remainingBytes = file_size;
+   new_file->ops = 0;
 
    enq_node(executingQueue, new_file);
    return 0;
@@ -362,10 +363,10 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    // get first file in queue
    struct file_entry *head = (struct file_entry *)executingQueue->head->data;
 
-   // if file consumed free and enq new file
+   // if file consumed deq and enq new file
    if (head->remainingBytes <= 0)
    {
-      free(deq_node(executingQueue));
+      deq_node(executingQueue);
       ret = enq_new_file(executingQueue, fileQueue);
       if (ret < 0)
          return ret;
@@ -379,13 +380,19 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    entry->readOff = head->off;
    entry->writeOff = head->off;
    entry->iov->iov_len = head->remainingBytes > BS ? BS : head->remainingBytes;
+   entry->fe = head;
 
    // update entry to reflect consumption
    head->off += entry->iov->iov_len;
    head->remainingBytes -= entry->iov->iov_len;
+   head->ops += 1;
 
+   // if comsumed deq and mark entry as last
    if (head->remainingBytes == 0)
+   {
       entry->last = 1;
+      deq_node(executingQueue);
+   }
    else
       entry->last = 0;
 
@@ -454,6 +461,14 @@ void rec_copy_inter(struct list *queue, struct io_uring *ring)
       switch (entry->op_count)
       {
       case 2:
+         // check in entry with fentry
+         entry->fe->ops--;
+         // if all ops checked in and no more future ops free file_entry and close files
+         if(entry->fe->ops == 0 && entry->fe->remainingBytes == 0){
+            free(entry->fe);
+            close(entry->fdDest);
+            close(entry->fdSrc);
+         }
          entry->op_count = 0;
          ret = get_next_entry(executingQueue, queue, entry);
          if (ret == 0)
@@ -512,6 +527,11 @@ void rec_copy_batch(struct list *queue, struct io_uring *ring)
       // submits all operations and waits till all complete
       struct io_uring_cqe *cqe;
       int num = io_uring_submit_and_wait(ring, in_flight);
+      if (num != in_flight)
+      {
+         perror("Some operations are still in flight");
+         exit(-1);
+      }
       // loop through operations and reap
       for (int i = 0; i < num; i++)
       {
@@ -536,6 +556,15 @@ void rec_copy_batch(struct list *queue, struct io_uring *ring)
          switch (entry->op_count)
          {
          case 2:
+            // check in op with fe 
+            entry->fe->ops--;
+            // if all ops checked in and no more future ops free fe and close files
+            if (entry->fe->ops == 0 && entry->fe->remainingBytes == 0)
+            {
+               free(entry->fe);
+               close(entry->fdDest);
+               close(entry->fdSrc);
+            }
             entry->op_count = 0;
             ret = get_next_entry(executingQueue, queue, entry);
             if (ret == 0)
@@ -688,7 +717,7 @@ int main(int argc, char **argv)
    queue->tail = NULL;
 
    // copy src into queue
-   char*src_queue_data = malloc(PATH_MAX +1);
+   char *src_queue_data = malloc(PATH_MAX + 1);
    CHECK_NULL(src_queue_data, "allocating copy addr for src");
    CHECK_NULL(strcpy(src_queue_data, src), "copying src");
    enq_node(queue, src_queue_data);
@@ -722,7 +751,8 @@ int main(int argc, char **argv)
    }
 
    // run requested operation
-   if(batch_opt){
+   if (batch_opt)
+   {
       rec_copy_batch(queue, ring);
    }
    else if (inter_opt)

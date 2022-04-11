@@ -336,6 +336,7 @@ int enq_new_file(struct list *executingQueue, struct list *fileQueue)
    new_file->infd = infd;
    new_file->outfd = outfd;
    new_file->remainingBytes = file_size;
+   new_file->ops = 0;
 
    enq_node(executingQueue, new_file);
    return 0;
@@ -359,7 +360,7 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    // if file consumed free and get next file
    if (head->remainingBytes <= 0)
    {
-      free(deq_node(executingQueue));
+      deq_node(executingQueue);
       ret = enq_new_file(executingQueue, fileQueue);
       if (ret < 0)
          return ret;
@@ -373,9 +374,17 @@ int get_next_entry(struct list *executingQueue, struct list *fileQueue, struct i
    entry->writeOff = head->off;
    entry->read_aiocb->aio_nbytes = head->remainingBytes > BUFF_SIZE ? BUFF_SIZE : head->remainingBytes;
    entry->write_aiocb->aio_nbytes = entry->read_aiocb->aio_nbytes;
+   entry->last = 0;
+   entry->fe = head;
    // update file fields
    head->off += entry->read_aiocb->aio_nbytes;
    head->remainingBytes -= entry->read_aiocb->aio_nbytes;
+   head->ops += 1;
+
+   if(head->remainingBytes == 0){
+      entry->last = 1;
+      deq_node(executingQueue);
+   }
 
    return 0;
 }
@@ -487,6 +496,14 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
          switch (entry->writeStatus)
          {
          case 0:
+            // check in op
+            entry->fe->ops--;
+            // if all ops checked in and no more future free and close files
+            if(entry->fe->ops == 0 && entry->fe->remainingBytes == 0){
+               free(entry->fe);
+               close(entry->fdSrc);
+               close(entry->fdDest);
+            }
             // if successfule get next pair of r/w and start executing
             CHECK_ERROR(aio_return(entry->read_aiocb), "write return");
             memset(entry->read_aiocb, 0, sizeof(struct aiocb));
@@ -643,6 +660,14 @@ void copy_batch_rec(struct list *queue, struct list *iolist)
       for (int i = 0; i < MAX_FILES; i++)
       {
          struct ioEntry *entry = &entries[i];
+         // check in op with file
+         entry->fe->ops--;
+         // if all ops checked in and no more future free and close files
+         if(entry->fe->ops == 0 && entry->fe->remainingBytes == 0){
+            free(entry->fe);
+            close(entry->fdDest);
+            close(entry->fdSrc);
+         }
          entry->writeStatus = 0;
          memset(entry->read_aiocb, 0, sizeof(struct aiocb));
          memset(entry->write_aiocb, 0, sizeof(struct aiocb));

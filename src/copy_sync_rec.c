@@ -20,6 +20,7 @@
 #include <string.h>
 #include <time.h>
 #include <dirent.h>
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -151,6 +152,8 @@ void print_usage()
 int main(int argc, char **argv)
 {
    struct timespec start, end;
+   struct rusage r_usage;
+   getrusage(RUSAGE_SELF,&r_usage);
 
    CHECK_ERROR(clock_gettime(CLOCK_MONOTONIC, &start), "getting start time");
 
@@ -225,7 +228,9 @@ int main(int argc, char **argv)
    double time_taken;
    time_taken = (end.tv_sec - start.tv_sec) * 1e9;
    time_taken = (time_taken + (end.tv_nsec - start.tv_nsec)) * 1e-9;
-   printf("The elapsed time is %f seconds\n", time_taken);
+   // printf("The elapsed time is %f seconds\n", time_taken);
+   printf("%f,", time_taken);
+   printf("%ld\n", r_usage.ru_maxrss);
 
    closedir(src_dir);
 }

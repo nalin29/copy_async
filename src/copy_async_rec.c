@@ -21,6 +21,7 @@
 #include <string.h>
 #include <time.h>
 #include <dirent.h>
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -195,7 +196,7 @@ void copy_rec(struct list *queue, struct list *iolist)
          switch (entry->readStatus)
          {
             // if finished reading
-         case 0:
+         case 0: ;
             int num_read;
             num_read = aio_return(entry->read_aiocb);
             // if no more file left
@@ -281,7 +282,7 @@ void copy_rec(struct list *queue, struct list *iolist)
          entry->writeStatus = aio_error(entry->write_aiocb);
          switch (entry->writeStatus)
          {
-         case 0:
+         case 0: ;
             // start next read
             int num_write = aio_return(entry->write_aiocb);
 
@@ -475,7 +476,7 @@ void copy_inter_rec(struct list *queue, struct list *iolist)
          entry->readStatus = aio_error(entry->read_aiocb);
          switch (entry->readStatus)
          {
-         case 0:
+         case 0: ;
             // start write operation if successful
             int num_read;
             num_read = aio_return(entry->read_aiocb);
@@ -726,6 +727,8 @@ void print_usage()
 int main(int argc, char **argv)
 {
    struct timespec start, end;
+   struct rusage r_usage;
+   getrusage(RUSAGE_SELF,&r_usage);
 
    CHECK_ERROR(clock_gettime(CLOCK_MONOTONIC, &start), "getting start time");
 
@@ -869,7 +872,8 @@ int main(int argc, char **argv)
    double time_taken;
    time_taken = (end.tv_sec - start.tv_sec) * 1e9;
    time_taken = (time_taken + (end.tv_nsec - start.tv_nsec)) * 1e-9;
-   printf("The elapsed time is %f seconds\n", time_taken);
-
+   // printf("The elapsed time is %f seconds\n", time_taken);
+   printf("%f,", time_taken);
+   printf("%ld\n", r_usage.ru_maxrss);
    closedir(src_dir);
 }

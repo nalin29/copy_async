@@ -22,6 +22,7 @@
 #include <sys/ioctl.h>
 #include <dirent.h>
 #include <linux/io_uring.h>
+#include <sys/resource.h>
 #include <sys/time.h>
 #include <liburing.h>
 #include <sys/mman.h>
@@ -618,6 +619,8 @@ int main(int argc, char **argv)
    // timer
 
    struct timespec start, end;
+   struct rusage r_usage;
+   getrusage(RUSAGE_SELF,&r_usage);
 
    CHECK_ERROR(clock_gettime(CLOCK_MONOTONIC, &start), "getting start time");
 
@@ -778,7 +781,9 @@ int main(int argc, char **argv)
    double time_taken;
    time_taken = (end.tv_sec - start.tv_sec) * 1e9;
    time_taken = (time_taken + (end.tv_nsec - start.tv_nsec)) * 1e-9;
-   printf("The elapsed time is %f seconds\n", time_taken);
+   // printf("The elapsed time is %f seconds\n", time_taken);
+   printf("%f,", time_taken);
+   printf("%ld\n", r_usage.ru_maxrss);
 
    closedir(src_dir);
    io_uring_queue_exit(ring);

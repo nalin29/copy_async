@@ -7,8 +7,7 @@ file_size = int(sys.argv[1]) * 1024 # 32 KB, 1 MB, 100 MB
 # total_size = 1024 * 1024 * 1024 * 1 #5 GB total
 # total_files = int(total_size / file_size)
 total_files = 128
-if int(sys.argv[1]) == 102400:
-    total_files = 32
+
 source_dir = 'test_src'
 source_path = os.path.join(os.getcwd(), source_dir)
 

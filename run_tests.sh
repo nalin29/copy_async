@@ -5,13 +5,13 @@ python file_writer.py 32
 printf "single op 32 kb," > results.txt
 for i in {1..50} #change this to 5 or 10 for when running actual tests
 do 
-	./copy_aio_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -22,13 +22,13 @@ python file_writer.py 1024
 printf "single op 1 mb," >> results.txt
 for i in {1..50}
 do 
-	./copy_aio_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -39,13 +39,13 @@ python file_writer.py 102400
 printf "single op 100 mb," >> results.txt
 for i in {1..50}
 do 
-	./copy_aio_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -56,13 +56,13 @@ python file_writer.py 32
 printf "multi op 32 kb," >> results.txt
 for i in {1..50} #change this to 5 or 10 for when running actual tests
 do 
-	./copy_aio_rec.out test_src test_dest -i | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d -i | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest -i | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d -i | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -73,13 +73,13 @@ python file_writer.py 1024
 printf "multi op 1 mb," >> results.txt
 for i in {1..50}
 do 
-	./copy_aio_rec.out test_src test_dest -i | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d -i | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest -i | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d -i | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -90,13 +90,13 @@ python file_writer.py 102400
 printf "multi op 100 mb," >> results.txt
 for i in {1..50}
 do 
-	./copy_aio_rec.out test_src test_dest -i | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d -i | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest -i | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d -i | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -107,13 +107,13 @@ python file_writer.py 32
 printf "batched op 32 kb," >> results.txt
 for i in {1..50} #change this to 5 or 10 for when running actual tests
 do 
-	./copy_aio_rec.out test_src test_dest -b | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d -b | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest -b | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d -b | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -124,13 +124,13 @@ python file_writer.py 1024
 printf "batched op 1 mb," >> results.txt
 for i in {1..50}
 do 
-	./copy_aio_rec.out test_src test_dest -b | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d -b | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest -b | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d -b | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done
@@ -141,13 +141,13 @@ python file_writer.py 102400
 printf "batched op 100 mb," >> results.txt
 for i in {1..50}
 do 
-	./copy_aio_rec.out test_src test_dest -b | tr -d "\n" >> results.txt
+	./copy_aio_rec.out test_src test_dest -d -b | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_sync_rec.out test_src test_dest | tr -d "\n" >> results.txt
+	./copy_sync_rec.out test_src test_dest -d | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
-	./copy_uring_rec.out test_src test_dest -b | tr -d "\n" >> results.txt
+	./copy_uring_rec.out test_src test_dest -d -b | tr -d "\n" >> results.txt
 	rm -rf test_dest/
 	printf "," >> results.txt
 done

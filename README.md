@@ -1,3 +1,9 @@
+# Installation and Use
+
+For ubuntu 22.04 please install the liburing-dev package from aptitude or a similar packages for other distros
+
+execute `make release` and have fun
+
 # Implementation and Design
 ## General Implementation
 Our general implementation of all of the methods for copying files is to maintain a queue of

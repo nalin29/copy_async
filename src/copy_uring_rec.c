@@ -620,7 +620,6 @@ int main(int argc, char **argv)
 
    struct timespec start, end;
    struct rusage r_usage;
-   getrusage(RUSAGE_SELF,&r_usage);
 
    CHECK_ERROR(clock_gettime(CLOCK_MONOTONIC, &start), "getting start time");
 
@@ -776,6 +775,9 @@ int main(int argc, char **argv)
    {
       rec_copy(queue, ring);
    }
+
+
+   getrusage(RUSAGE_SELF,&r_usage);
 
    clock_gettime(CLOCK_MONOTONIC, &end);
    double time_taken;

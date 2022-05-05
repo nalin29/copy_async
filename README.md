@@ -1,5 +1,5 @@
-# 3 Implementation and Design
-## 3.1 General Implementation
+# Implementation and Design
+## General Implementation
 Our general implementation of all of the methods for copying files is to maintain a queue of
 files and directories we need to process and a working set of files to request I/O operations
 for. To start, we first perform Breadth-First Search on our source directory. If the next
@@ -7,7 +7,7 @@ structure is a directory, we will make an equivalent directory at our new destin
 start traversing this subdirectory to append files to our queue. If the structure was just a
 file, we instead find its new name i.e., the name it would have in the destination directory.
 We then populate the relevant I/O structures which will be discussed in further detail below.
-## 3.2 Copy using aio
+## Copy using aio
 To use aio we first need to call aio_init with a aioinit struct which has a number of
 parameters with most unused. We are interested in aio_threads which is the max number
 of threads we want to use for the implementation, aio_num which is the maximum number of
@@ -20,7 +20,7 @@ Recall that aio only works asynchronously when we have the O_DIRECT flag set. Ou
 mentations support three different ways of processing files, using single operations per file,
 multiple operations per file, or batched operations. The specifics of these approaches are
 outlined below.
-### 3.2.1 Single Operation per File
+### Single Operation per File
 Here in the main loop, we start queueing files to the working set and start making I/O
 requests. After populating the aiocb struct, we can then start a read of the file in the source
 directory. We continuously loop until we are done with open requests in our working set.
@@ -28,12 +28,12 @@ Inside this loop we check if the current file has finished reading and writing a
 add the next file to the queue and start processing that file. If it has only finished reading we
 start the next write. Since we can only process files based on our buffer size, we read bytes
 until our buffer is full then write those bytes and repeat until we are done with the file.
-### 3.2.2 Multiple Operations Per File
+### Multiple Operations Per File
 For supporting multiple operations per file at a time, we now also maintain a queue of
 currently executing files so that we can interweave reads and writes. We use the queue to
 update the aiocb structs with the next pair of read and write operations that we want to
 process.
-### 3.2.3 Batched Operations
+### Batched Operations
 The idea behind batched operations it that we will be able to split our file into a series of
 reads and writes and concurrently and asynchronously make requests on these files. This
 is done similarly to multiple operations per file but we also have a list of read and write
@@ -43,7 +43,7 @@ these operations can be executed in any order which does not necessarily matter 
 case as long as we wait for all operations to finish before continuing. We ensure this by
 passing LIO_WAIT as an argument to lio_listio which ensures that we block until all I/O
 operations are complete.
-## 3.3 Copy using io uring
+## Copy using io uring
 To utilize io_uring we make our life easier by utilizing the API defined in the liburing
 library. Similar to aio we need to initialize some of the command structures. The main
 control structure is the struct io_uring. This refers to the combined ring structure which
@@ -74,7 +74,7 @@ io_uring_register_buffers which takes a list of pointers to buffers. Then to exe
 operations using these registered buffers we make use of io_uring_prep_write_fixed and
 io_uring_prep_read_fixed. For these operations we must also pass an index referring to
 the buffer index in the registered buffer list.
-### 3.3.1 Single Operation per File
+### Single Operation per File
 The first implementation of our copy program using io_uring was to have a single read-write
 pair per file to see if we can make use of executing operations on multiple files at once. This
 is implemented by generating a read-write pair file using the process mentioned above and
@@ -86,14 +86,14 @@ then either add a new read-write pair for the next offset in the file or start a
 pair for the next file, submitting them immediately. To ensure that the completion queue
 entry is popped off the queue we must use io_uring_cqe_seen after using the entry allowing
 for it to be deallocated. This process is repeated until there are no more in-flight operations.
-### 3.3.2 Multiple Operations Per File
+### Multiple Operations Per File
 The second implementation performs multiple operations per file making use of the asyn-
 chronous executions to perform reads and writes at different operations of each file. This
 also allows us to perform multiple reads and writes to the same file and different files at the
 same time. This implemented very similarly as when only have one operation pair per file.
 The only difference is now we must also track when all operations for a file have checked in
 so the file may be closed and the current offset in the file for future operations.
-### 3.3.3 Batched Operations
+### Batched Operations
 We then implemented batched operations. In this case we do not immediately submit
 all the entries rather we wait for all entries to first check in. This can be done using
 io_uring_submit_and_wait which submits all entries and then waits for completion. We
